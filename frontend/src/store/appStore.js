@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 
 /**
+ * Module-level cache for heavy binary data.
+ * Kept outside Zustand to avoid proxy/snapshot overhead and extra references to large buffers.
+ */
+export const heavyDataCache = {
+  volumeScalars: null,   // Float32Array — zero-copy view over the server ArrayBuffer
+  surfaceBuffer: null,   // ArrayBuffer (set lazily, freed after vtk parse)
+}
+
+/**
  * Upload state machine:
  * idle → uploading → processing → ready → viewing
  * Any state can transition to → error
@@ -52,6 +61,7 @@ export const useAppStore = create((set, get) => ({
   viewMode: VIEW_MODES.VOLUME,
   volumeData: null,
   surfaceData: null,
+  surfaceAvailable: false,
   metadata: null,
   is2DFallback: false,
   fallbackMessage: null,
@@ -81,7 +91,9 @@ export const useAppStore = create((set, get) => ({
       errorMessage: message,
     }),
 
-  reset: () =>
+  reset: () => {
+    heavyDataCache.volumeScalars = null
+    heavyDataCache.surfaceBuffer = null
     set({
       uploadState: UPLOAD_STATES.IDLE,
       uploadProgress: 0,
@@ -91,6 +103,7 @@ export const useAppStore = create((set, get) => ({
       jobId: null,
       volumeData: null,
       surfaceData: null,
+      surfaceAvailable: false,
       metadata: null,
       is2DFallback: false,
       fallbackMessage: null,
@@ -100,7 +113,8 @@ export const useAppStore = create((set, get) => ({
       sliceAxis: 'axial',
       opacityPreset: 'skin',
       opacityMultiplier: 1.0,
-    }),
+    })
+  },
 
   setFiles: (files) => set({ files }),
   setJobId: (jobId) => set({ jobId }),
@@ -134,11 +148,11 @@ export const useAppStore = create((set, get) => ({
   setOpacityMultiplier: (value) => set({ opacityMultiplier: value }),
 
   // Computed helpers
-  setViewerData: ({ volumeData, surfaceData, metadata, totalSlices, is2DFallback, fallbackMessage }) =>
+  setViewerData: ({ volumeData, surfaceAvailable, metadata, totalSlices, is2DFallback, fallbackMessage }) =>
     set({
       uploadState: is2DFallback ? UPLOAD_STATES.VIEWING : UPLOAD_STATES.READY,
       volumeData: volumeData || null,
-      surfaceData: surfaceData || null,
+      surfaceAvailable: surfaceAvailable || false,
       metadata: metadata || null,
       totalSlices: totalSlices || 0,
       is2DFallback: is2DFallback || false,

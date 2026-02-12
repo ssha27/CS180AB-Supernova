@@ -5,7 +5,7 @@ import path from 'path'
 
 const DICOM_SERVICE_URL = process.env.DICOM_SERVICE_URL || 'http://localhost:5000'
 
-// In-memory job status cache (simple for Phase 1)
+// In-memory job status cache
 const jobCache = new Map()
 
 /**

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useAppStore, VIEW_MODES } from '../store/appStore'
+import { useAppStore, VIEW_MODES, heavyDataCache } from '../store/appStore'
+import { fetchSurfaceData } from '../services/api'
 import './ViewerScreen.css'
 
 // vtk.js imports — loaded dynamically to avoid SSR issues
@@ -142,21 +143,29 @@ const CT_OPACITY_PRESETS = {
   lung: {
     label: 'Lung',
     color: [
-      [-1000, 0.05, 0.05, 0.15],
-      [-800, 0.2, 0.25, 0.45],
-      [-500, 0.4, 0.5, 0.65],
-      [-200, 0.65, 0.7, 0.75],
-      [0, 0.85, 0.75, 0.65],
+      [-1000, 0, 0, 0],
+      [-900, 0.1, 0.1, 0.2],
+      [-800, 0.25, 0.4, 0.7],
+      [-600, 0.3, 0.55, 0.85],
+      [-400, 0.15, 0.35, 0.6],
+      [-200, 0.5, 0.4, 0.35],
+      [-50, 0.7, 0.55, 0.45],
+      [0, 0.8, 0.65, 0.55],
+      [200, 0.9, 0.8, 0.7],
       [500, 1, 0.95, 0.9],
     ],
     opacity: [
       [-1000, 0],
+      [-950, 0],
+      [-900, 0.01],
       [-800, 0.15],
-      [-500, 0.3],
-      [-200, 0.08],
-      [0, 0.03],
-      [100, 0.1],
-      [500, 0.5],
+      [-600, 0.35],
+      [-400, 0.15],
+      [-200, 0],
+      [-50, 0],
+      [0, 0.01],
+      [200, 0.02],
+      [500, 0.1],
     ],
   },
 }
@@ -176,6 +185,9 @@ export default function ViewerScreen() {
     viewMode,
     volumeData,
     surfaceData,
+    surfaceAvailable,
+    jobId,
+    setSurfaceData,
     clipPlanes,
     isFlippedH,
     isFlippedV,
@@ -187,6 +199,25 @@ export default function ViewerScreen() {
     setCurrentSliceIndex,
     setTotalSlices,
   } = useAppStore()
+
+  // Pipeline object refs — track vtk.js objects for reuse and cleanup.
+  // vtk.js objects hold internal GPU/WASM resources that must be explicitly .delete()'d;
+  // without this, every preset or mode change leaks ~50-100 MB of GPU memory.
+  const volumeRef = useRef(null)
+  const volumeMapperRef = useRef(null)
+  const ctfRef = useRef(null)
+  const ofRef = useRef(null)
+  const surfaceActorRef = useRef(null)
+  const surfaceMapperRef = useRef(null)
+  const clipPlaneObjectsRef = useRef([])   // Track vtkPlane instances for cleanup
+  const surfaceLoadedRef = useRef(false)    // Track if surface has been lazy-loaded
+
+  /** Safely delete vtk.js objects to free GPU/WASM resources. */
+  function cleanupVtk(...objects) {
+    for (const obj of objects) {
+      try { obj?.delete?.() } catch (_) { /* already deleted or null */ }
+    }
+  }
 
   // Initialize vtk.js rendering context
   useEffect(() => {
@@ -225,6 +256,16 @@ export default function ViewerScreen() {
 
     return () => {
       destroyed = true
+      // Free all tracked vtk pipeline objects before destroying the render window
+      for (const p of clipPlaneObjectsRef.current) { try { p.delete() } catch (_) {} }
+      clipPlaneObjectsRef.current = []
+      surfaceLoadedRef.current = false
+      cleanupVtk(
+        volumeRef.current, volumeMapperRef.current,
+        ctfRef.current, ofRef.current,
+        surfaceActorRef.current, surfaceMapperRef.current,
+        imageDataRef.current,
+      )
       if (vtkContextRef.current) {
         vtkContextRef.current.fullScreenRenderer.delete()
         vtkContextRef.current = null
@@ -235,19 +276,23 @@ export default function ViewerScreen() {
   // Build vtkImageData from volumeData (shared by volume + slice rendering)
   const imageDataRef = useRef(null)
   useEffect(() => {
-    if (!vtkReady || !volumeData) {
+    if (!vtkReady || !volumeData || !heavyDataCache.volumeScalars) {
+      cleanupVtk(imageDataRef.current)
       imageDataRef.current = null
       return
     }
+    // Delete previous vtkImageData when replacing (e.g. re-upload)
+    cleanupVtk(imageDataRef.current)
     const imageData = vtkImageData.newInstance()
-    const { dimensions, spacing, origin, scalars } = volumeData
+    const { dimensions, spacing, origin } = volumeData
     imageData.setDimensions(dimensions)
     imageData.setSpacing(spacing || [1, 1, 1])
     imageData.setOrigin(origin || [0, 0, 0])
 
+    // Use the Float32Array directly from cache — no copy
     const scalarArray = vtkDataArray.newInstance({
       numberOfComponents: 1,
-      values: new Float32Array(scalars),
+      values: heavyDataCache.volumeScalars,
       name: 'Scalars',
     })
     imageData.getPointData().setScalars(scalarArray)
@@ -258,17 +303,26 @@ export default function ViewerScreen() {
     setTotalSlices(dims[2]) // axial = Z dimension by default
   }, [vtkReady, volumeData, setTotalSlices])
 
-  // Load volume data when available (reacts to opacity preset/multiplier changes)
+  // Volume pipeline — creates mapper, volume actor, and shading properties.
+  // Only rebuilds when the underlying data or view mode changes (NOT on
+  // preset/multiplier tweaks), avoiding a costly 3D-texture re-upload.
   useEffect(() => {
     if (!vtkReady || !vtkContextRef.current || !imageDataRef.current) return
     if (viewMode !== VIEW_MODES.VOLUME) return
 
-    const { renderer, renderWindow } = vtkContextRef.current
+    const { renderer } = vtkContextRef.current
     const imageData = imageDataRef.current
 
-    // Clear previous actors
+    // Free ALL previous objects (both modes) to reclaim GPU memory
     renderer.removeAllVolumes()
     renderer.removeAllActors()
+    cleanupVtk(
+      volumeRef.current, volumeMapperRef.current,
+      ctfRef.current, ofRef.current,
+      surfaceActorRef.current, surfaceMapperRef.current,
+    )
+    surfaceActorRef.current = null
+    surfaceMapperRef.current = null
 
     try {
       const spacing = imageData.getSpacing()
@@ -278,43 +332,12 @@ export default function ViewerScreen() {
       mapper.setInputData(imageData)
       const minSpacing = Math.min(...spacing)
       mapper.setSampleDistance(minSpacing * 0.5)
+      mapper.setAutoAdjustSampleDistances(true)
+      mapper.setMaximumSamplesPerRay(2000)
 
-      // Determine if CT data
-      const scalarArray = imageData.getPointData().getScalars()
-      const dataRange = scalarArray.getRange()
-      const rangeMin = dataRange[0]
-      const rangeMax = dataRange[1]
-      const isCTData = rangeMin < -500
-
+      // Empty transfer functions — the TF effect below will fill them
       const ctfun = vtkColorTransferFunction.newInstance()
       const ofun = vtkPiecewiseFunction.newInstance()
-
-      if (isCTData) {
-        // Use preset-based transfer functions
-        const preset = CT_OPACITY_PRESETS[opacityPreset] || CT_OPACITY_PRESETS.skin
-
-        for (const [val, r, g, b] of preset.color) {
-          ctfun.addRGBPoint(val, r, g, b)
-        }
-        for (const [val, baseOpacity] of preset.opacity) {
-          ofun.addPoint(val, baseOpacity * opacityMultiplier)
-        }
-      } else {
-        // Generic transfer function for MRI and other modalities
-        const rangeWidth = rangeMax - rangeMin || 1
-        ctfun.addRGBPoint(rangeMin, 0, 0, 0)
-        ctfun.addRGBPoint(rangeMin + rangeWidth * 0.25, 0.4, 0.3, 0.4)
-        ctfun.addRGBPoint(rangeMin + rangeWidth * 0.5, 0.7, 0.6, 0.65)
-        ctfun.addRGBPoint(rangeMin + rangeWidth * 0.75, 0.9, 0.85, 0.8)
-        ctfun.addRGBPoint(rangeMax, 1, 1, 1)
-
-        ofun.addPoint(rangeMin, 0)
-        ofun.addPoint(rangeMin + rangeWidth * 0.1, 0)
-        ofun.addPoint(rangeMin + rangeWidth * 0.3, 0.05 * opacityMultiplier)
-        ofun.addPoint(rangeMin + rangeWidth * 0.5, 0.2 * opacityMultiplier)
-        ofun.addPoint(rangeMin + rangeWidth * 0.8, 0.5 * opacityMultiplier)
-        ofun.addPoint(rangeMax, 0.8 * opacityMultiplier)
-      }
 
       const avgSpacing = (spacing[0] + spacing[1] + spacing[2]) / 3
 
@@ -331,15 +354,101 @@ export default function ViewerScreen() {
       volume.getProperty().setSpecular(0.3)
       volume.getProperty().setSpecularPower(8.0)
 
+      // Gradient opacity — modulates opacity by local gradient magnitude
+      try {
+        volume.getProperty().setUseGradientOpacity(0, true)
+        volume.getProperty().setGradientOpacityMinimumValue(0, 2)
+        volume.getProperty().setGradientOpacityMaximumValue(0, 20)
+        volume.getProperty().setGradientOpacityMinimumOpacity(0, 0.0)
+        volume.getProperty().setGradientOpacityMaximumOpacity(0, 1.0)
+      } catch (_) { /* gradient opacity not available in this vtk.js build */ }
+
       renderer.addVolume(volume)
       renderer.resetCamera()
-      renderWindow.render()
 
+      // Store refs — the TF effect will populate control points and render
+      volumeRef.current = volume
+      volumeMapperRef.current = mapper
+      ctfRef.current = ctfun
+      ofRef.current = ofun
       vtkContextRef.current.volumes = [volume]
+      vtkContextRef.current.actors = []
     } catch (err) {
-      console.error('Failed to render volume:', err)
+      console.error('Failed to build volume pipeline:', err)
     }
-  }, [vtkReady, volumeData, viewMode, opacityPreset, opacityMultiplier])
+  }, [vtkReady, volumeData, viewMode])
+
+  // Transfer function update — lightweight effect that only touches color/opacity
+  // control points.  Runs on preset or multiplier changes WITHOUT recreating the
+  // heavy mapper, 3D texture, or volume actor.
+  useEffect(() => {
+    if (!ctfRef.current || !ofRef.current || !imageDataRef.current) return
+    if (viewMode !== VIEW_MODES.VOLUME) return
+
+    const ctfun = ctfRef.current
+    const ofun = ofRef.current
+    ctfun.removeAllPoints()
+    ofun.removeAllPoints()
+
+    const imageData = imageDataRef.current
+    const scalarArray = imageData.getPointData().getScalars()
+    const dataRange = scalarArray.getRange()
+    const rangeMin = dataRange[0]
+    const rangeMax = dataRange[1]
+    const isCTData = rangeMin < -500
+
+    if (isCTData) {
+      const preset = CT_OPACITY_PRESETS[opacityPreset] || CT_OPACITY_PRESETS.skin
+      for (const [val, r, g, b] of preset.color) {
+        ctfun.addRGBPoint(val, r, g, b)
+      }
+      for (const [val, baseOpacity] of preset.opacity) {
+        ofun.addPoint(val, baseOpacity * opacityMultiplier)
+      }
+    } else {
+      const rangeWidth = rangeMax - rangeMin || 1
+      ctfun.addRGBPoint(rangeMin, 0, 0, 0)
+      ctfun.addRGBPoint(rangeMin + rangeWidth * 0.25, 0.4, 0.3, 0.4)
+      ctfun.addRGBPoint(rangeMin + rangeWidth * 0.5, 0.7, 0.6, 0.65)
+      ctfun.addRGBPoint(rangeMin + rangeWidth * 0.75, 0.9, 0.85, 0.8)
+      ctfun.addRGBPoint(rangeMax, 1, 1, 1)
+
+      ofun.addPoint(rangeMin, 0)
+      ofun.addPoint(rangeMin + rangeWidth * 0.1, 0)
+      ofun.addPoint(rangeMin + rangeWidth * 0.3, 0.05 * opacityMultiplier)
+      ofun.addPoint(rangeMin + rangeWidth * 0.5, 0.2 * opacityMultiplier)
+      ofun.addPoint(rangeMin + rangeWidth * 0.8, 0.5 * opacityMultiplier)
+      ofun.addPoint(rangeMax, 0.8 * opacityMultiplier)
+    }
+
+    if (vtkContextRef.current) {
+      vtkContextRef.current.renderWindow.render()
+    }
+  }, [vtkReady, viewMode, opacityPreset, opacityMultiplier, volumeData])
+
+  // Lazy-load surface data when user switches to surface mode
+  useEffect(() => {
+    if (viewMode !== VIEW_MODES.SURFACE) return
+    if (surfaceData || surfaceLoadedRef.current) return   // already loaded
+    if (!surfaceAvailable || !jobId) return
+
+    let cancelled = false
+    async function loadSurface() {
+      try {
+        const buffer = await fetchSurfaceData(jobId)
+        if (!cancelled) {
+          heavyDataCache.surfaceBuffer = buffer
+          setSurfaceData(buffer)
+          surfaceLoadedRef.current = true
+        }
+      } catch (err) {
+        console.error('Failed to lazy-load surface data:', err)
+        if (!cancelled) surfaceLoadedRef.current = true  // Don't retry on failure
+      }
+    }
+    loadSurface()
+    return () => { cancelled = true }
+  }, [viewMode, surfaceData, surfaceAvailable, jobId, setSurfaceData])
 
   // Load surface data when available
   useEffect(() => {
@@ -348,14 +457,28 @@ export default function ViewerScreen() {
 
     const { renderer, renderWindow } = vtkContextRef.current
 
+    // Free ALL previous objects (both modes) to reclaim GPU memory
     renderer.removeAllVolumes()
     renderer.removeAllActors()
+    cleanupVtk(
+      volumeRef.current, volumeMapperRef.current,
+      ctfRef.current, ofRef.current,
+      surfaceActorRef.current, surfaceMapperRef.current,
+    )
+    volumeRef.current = null
+    volumeMapperRef.current = null
+    ctfRef.current = null
+    ofRef.current = null
 
     try {
-      // Parse the VTP binary data using vtk.js XML reader
+      // Parse VTP — delete the reader immediately to free its internal buffers
       const reader = vtkXMLPolyDataReader.newInstance()
       reader.parseAsArrayBuffer(surfaceData)
       const polyData = reader.getOutputData(0)
+      reader.delete()
+
+      // Free the raw ArrayBuffer from cache — polyData now owns the parsed geometry
+      heavyDataCache.surfaceBuffer = null
 
       if (!polyData) {
         console.error('Failed to parse surface VTP data')
@@ -369,12 +492,16 @@ export default function ViewerScreen() {
       actor.setMapper(mapper)
       actor.getProperty().setColor(0.8, 0.75, 0.7)
       actor.getProperty().setOpacity(1.0)
+      actor.getProperty().setBackfaceCulling(false)
 
       renderer.addActor(actor)
       renderer.resetCamera()
       renderWindow.render()
 
+      surfaceActorRef.current = actor
+      surfaceMapperRef.current = mapper
       vtkContextRef.current.actors = [actor]
+      vtkContextRef.current.volumes = []
     } catch (err) {
       console.error('Failed to render surface:', err)
     }
@@ -383,8 +510,17 @@ export default function ViewerScreen() {
   // Apply flip transforms
   useEffect(() => {
     if (!vtkContextRef.current) return
-    const { renderWindow, volumes, actors } = vtkContextRef.current
+    const { renderer, renderWindow, volumes, actors } = vtkContextRef.current
     const allActors = [...(volumes || []), ...(actors || [])]
+    const isOddFlip = isFlippedH !== isFlippedV
+
+    // When an odd number of axes are negatively scaled the triangle winding
+    // reverses.  vtk.js's two-sided lighting path negates the fragment normal
+    // for back-facing triangles, but the normal matrix already accounts for
+    // the mirrored transform — the double negation produces an incorrect
+    // normal and the surface goes black.  Disabling two-sided lighting when
+    // an odd flip is active avoids the double negation.
+    renderer.setTwoSidedLighting(!isOddFlip)
 
     for (const actor of allActors) {
       if (actor.setScale) {
@@ -401,6 +537,19 @@ export default function ViewerScreen() {
 
     const { renderWindow, volumes, actors } = vtkContextRef.current
 
+    // Delete previously created vtkPlane objects to prevent WASM/GPU memory leak
+    for (const p of clipPlaneObjectsRef.current) {
+      try { p.delete() } catch (_) { /* already deleted */ }
+    }
+    clipPlaneObjectsRef.current = []
+
+    /** Create a vtkPlane, track it for later cleanup, and return it. */
+    function createTrackedPlane(opts) {
+      const plane = vtkPlane.newInstance(opts)
+      clipPlaneObjectsRef.current.push(plane)
+      return plane
+    }
+
     // Apply clip planes to both volumes and surface actors
     const allMappables = [...(volumes || []), ...(actors || [])]
 
@@ -414,8 +563,8 @@ export default function ViewerScreen() {
       const bounds = mapper.getBounds()
       if (!bounds || bounds.length < 6) continue
 
-      // --- Slice clipping (for volume mode only, when slice index > 0) ---
-      if (viewMode === VIEW_MODES.VOLUME && imageDataRef.current && totalSlices > 0 && currentSliceIndex > 0) {
+      // --- Slice clipping (when slice index > 0) ---
+      if (imageDataRef.current && totalSlices > 0 && currentSliceIndex > 0) {
         const imageData = imageDataRef.current
         const dims = imageData.getDimensions()
         const spacing = imageData.getSpacing()
@@ -437,7 +586,7 @@ export default function ViewerScreen() {
         const frontNormal = [0, 0, 0]
         frontNormal[axisIndex] = 1
         mapper.addClippingPlane(
-          vtkPlane.newInstance({ normal: frontNormal, origin: frontOrigin })
+          createTrackedPlane({ normal: frontNormal, origin: frontOrigin })
         )
 
         // Back clip plane
@@ -446,7 +595,7 @@ export default function ViewerScreen() {
         const backNormal = [0, 0, 0]
         backNormal[axisIndex] = -1
         mapper.addClippingPlane(
-          vtkPlane.newInstance({ normal: backNormal, origin: backOrigin })
+          createTrackedPlane({ normal: backNormal, origin: backOrigin })
         )
       }
 
@@ -454,21 +603,21 @@ export default function ViewerScreen() {
       if (clipPlanes.axial.enabled) {
         const z = bounds[4] + clipPlanes.axial.value * (bounds[5] - bounds[4])
         mapper.addClippingPlane(
-          vtkPlane.newInstance({ normal: [0, 0, 1], origin: [0, 0, z] })
+          createTrackedPlane({ normal: [0, 0, 1], origin: [0, 0, z] })
         )
       }
 
       if (clipPlanes.sagittal.enabled) {
         const x = bounds[0] + clipPlanes.sagittal.value * (bounds[1] - bounds[0])
         mapper.addClippingPlane(
-          vtkPlane.newInstance({ normal: [1, 0, 0], origin: [x, 0, 0] })
+          createTrackedPlane({ normal: [1, 0, 0], origin: [x, 0, 0] })
         )
       }
 
       if (clipPlanes.coronal.enabled) {
         const y = bounds[2] + clipPlanes.coronal.value * (bounds[3] - bounds[2])
         mapper.addClippingPlane(
-          vtkPlane.newInstance({ normal: [0, 1, 0], origin: [0, y, 0] })
+          createTrackedPlane({ normal: [0, 1, 0], origin: [0, y, 0] })
         )
       }
     }

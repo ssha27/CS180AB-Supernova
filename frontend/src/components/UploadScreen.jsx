@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { useAppStore, validateFiles, UPLOAD_STATES } from '../store/appStore'
-import { uploadFiles, getJobStatus, fetchVolumeData, fetchVolumeInfo, fetchSurfaceData, fetchMetadata } from '../services/api'
+import { useAppStore, validateFiles, UPLOAD_STATES, heavyDataCache } from '../store/appStore'
+import { uploadFiles, getJobStatus, fetchVolumeData, fetchVolumeInfo, fetchMetadata } from '../services/api'
 import './UploadScreen.css'
 
 const POLL_INTERVAL = 1500 // ms
@@ -30,24 +30,25 @@ export default function UploadScreen() {
         if (status.status === 'completed') {
           // Fetch the actual binary data and metadata from the server
           setProcessingProgress(95)
-          const [volumeBuffer, volumeInfo, surfaceBuffer, metadata] =
+          const [volumeBuffer, volumeInfo, metadata] =
             await Promise.all([
               fetchVolumeData(jobId),
               fetchVolumeInfo(jobId),
-              fetchSurfaceData(jobId).catch(() => null), // surface may not exist for 2D fallback
               fetchMetadata(jobId),
             ])
+
+          // Store heavy scalar data in module-level cache (outside Zustand)
+          heavyDataCache.volumeScalars = new Float32Array(volumeBuffer)
 
           setViewerData({
             volumeData: {
               dimensions: volumeInfo.dimensions,
               spacing: volumeInfo.spacing,
               origin: volumeInfo.origin,
-              scalars: volumeBuffer,
               min: volumeInfo.min,
               max: volumeInfo.max,
             },
-            surfaceData: surfaceBuffer,
+            surfaceAvailable: !status.result?.is2DFallback,
             metadata,
             totalSlices: status.result?.totalSlices,
             is2DFallback: status.result?.is2DFallback || false,
