@@ -1,0 +1,151 @@
+.toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.6rem 1.2rem;
+  background: rgba(20, 20, 24, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  overflow-x: auto;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.toolbar-group-clip {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+
+.toolbar-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 0.3rem;
+}
+
+.toolbar-btn {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.toolbar-btn.active {
+  background: #646cff;
+  border-color: #646cff;
+  color: #fff;
+}
+
+/* Clip controls */
+.clip-control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.clip-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.clip-checkbox input[type='checkbox'] {
+  accent-color: #646cff;
+}
+
+.clip-slider,
+.slice-slider {
+  width: 100px;
+  height: 4px;
+  accent-color: #646cff;
+  cursor: pointer;
+}
+
+.slice-slider {
+  width: 140px;
+}
+
+/* Opacity controls */
+.toolbar-group-opacity {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+
+.preset-buttons {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.toolbar-btn-sm {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.opacity-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.toolbar-label-sm {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  min-width: 3.5rem;
+}
+
+.opacity-slider {
+  width: 100px;
+  height: 4px;
+  accent-color: #646cff;
+  cursor: pointer;
+}
+
+/* Slice view group */
+.toolbar-group-slice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.slice-axis-select {
+  padding: 0.25rem 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.slice-axis-select:focus {
+  outline: none;
+  border-color: #646cff;
+}

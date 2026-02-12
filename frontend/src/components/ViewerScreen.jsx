@@ -1,0 +1,484 @@
+import { useEffect, useRef, useState } from 'react'
+import { useAppStore, VIEW_MODES } from '../store/appStore'
+import './ViewerScreen.css'
+
+// vtk.js imports — loaded dynamically to avoid SSR issues
+let vtkFullScreenRenderWindow,
+  vtkVolume,
+  vtkVolumeMapper,
+  vtkImageData,
+  vtkDataArray,
+  vtkColorTransferFunction,
+  vtkPiecewiseFunction,
+  vtkPlane,
+  vtkActor,
+  vtkMapper,
+  vtkXMLPolyDataReader
+
+async function loadVtkModules() {
+  const vtk = await import('@kitware/vtk.js')
+
+  // Rendering
+  const renderingModule = await import(
+    '@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow'
+  )
+  vtkFullScreenRenderWindow = renderingModule.default
+
+  // Volume rendering
+  const volumeModule = await import('@kitware/vtk.js/Rendering/Core/Volume')
+  vtkVolume = volumeModule.default
+
+  const volumeMapperModule = await import(
+    '@kitware/vtk.js/Rendering/Core/VolumeMapper'
+  )
+  vtkVolumeMapper = volumeMapperModule.default
+
+  // Data
+  const imageDataModule = await import('@kitware/vtk.js/Common/DataModel/ImageData')
+  vtkImageData = imageDataModule.default
+
+  // DataArray for scalar data
+  const dataArrayModule = await import('@kitware/vtk.js/Common/Core/DataArray')
+  vtkDataArray = dataArrayModule.default
+
+  // Transfer functions
+  const ctfModule = await import(
+    '@kitware/vtk.js/Rendering/Core/ColorTransferFunction'
+  )
+  vtkColorTransferFunction = ctfModule.default
+
+  const pwfModule = await import(
+    '@kitware/vtk.js/Common/DataModel/PiecewiseFunction'
+  )
+  vtkPiecewiseFunction = pwfModule.default
+
+  // Surface rendering
+  const actorModule = await import('@kitware/vtk.js/Rendering/Core/Actor')
+  vtkActor = actorModule.default
+
+  const mapperModule = await import('@kitware/vtk.js/Rendering/Core/Mapper')
+  vtkMapper = mapperModule.default
+
+  // VTP reader for surface meshes
+  const vtpReaderModule = await import('@kitware/vtk.js/IO/XML/XMLPolyDataReader')
+  vtkXMLPolyDataReader = vtpReaderModule.default
+
+  // Clipping
+  const planeModule = await import('@kitware/vtk.js/Common/DataModel/Plane')
+  vtkPlane = planeModule.default
+
+  return vtk
+}
+
+/**
+ * CT opacity presets for different tissue types.
+ * Each preset defines color and opacity transfer functions using Hounsfield units.
+ * The opacity values can be scaled by the opacityMultiplier.
+ */
+const CT_OPACITY_PRESETS = {
+  skin: {
+    label: 'Skin',
+    color: [
+      [-1000, 0, 0, 0],
+      [-500, 0.6, 0.4, 0.3],
+      [-100, 0.85, 0.65, 0.55],
+      [0, 0.9, 0.72, 0.6],
+      [100, 0.85, 0.6, 0.5],
+      [500, 0.95, 0.88, 0.8],
+      [1500, 1, 1, 0.95],
+    ],
+    opacity: [
+      [-1000, 0],
+      [-500, 0],
+      [-300, 0],
+      [-100, 0.3],
+      [0, 0.45],
+      [100, 0.5],
+      [500, 0.6],
+      [1500, 0.85],
+    ],
+  },
+  muscle: {
+    label: 'Muscle',
+    color: [
+      [-1000, 0, 0, 0],
+      [-100, 0.4, 0.15, 0.1],
+      [0, 0.7, 0.3, 0.25],
+      [50, 0.8, 0.4, 0.3],
+      [200, 0.9, 0.6, 0.5],
+      [500, 0.95, 0.85, 0.75],
+      [1500, 1, 1, 0.95],
+    ],
+    opacity: [
+      [-1000, 0],
+      [-200, 0],
+      [-50, 0],
+      [0, 0.1],
+      [50, 0.35],
+      [200, 0.5],
+      [500, 0.6],
+      [1500, 0.85],
+    ],
+  },
+  bone: {
+    label: 'Bone',
+    color: [
+      [-1000, 0, 0, 0],
+      [100, 0.5, 0.35, 0.25],
+      [300, 0.85, 0.75, 0.65],
+      [800, 0.95, 0.9, 0.85],
+      [1500, 1, 1, 1],
+    ],
+    opacity: [
+      [-1000, 0],
+      [0, 0],
+      [150, 0],
+      [300, 0.4],
+      [500, 0.7],
+      [1000, 0.85],
+      [1500, 0.95],
+    ],
+  },
+  lung: {
+    label: 'Lung',
+    color: [
+      [-1000, 0.05, 0.05, 0.15],
+      [-800, 0.2, 0.25, 0.45],
+      [-500, 0.4, 0.5, 0.65],
+      [-200, 0.65, 0.7, 0.75],
+      [0, 0.85, 0.75, 0.65],
+      [500, 1, 0.95, 0.9],
+    ],
+    opacity: [
+      [-1000, 0],
+      [-800, 0.15],
+      [-500, 0.3],
+      [-200, 0.08],
+      [0, 0.03],
+      [100, 0.1],
+      [500, 0.5],
+    ],
+  },
+}
+
+/** Slicing mode enum matching vtk.js ImageMapper.SlicingMode */
+const SLICING_MODE_MAP = {
+  axial: 2,    // K (Z)
+  sagittal: 0, // I (X)
+  coronal: 1,  // J (Y)
+}
+
+export default function ViewerScreen() {
+  const containerRef = useRef(null)
+  const vtkContextRef = useRef(null)
+  const [vtkReady, setVtkReady] = useState(false)
+  const {
+    viewMode,
+    volumeData,
+    surfaceData,
+    clipPlanes,
+    isFlippedH,
+    isFlippedV,
+    currentSliceIndex,
+    totalSlices,
+    sliceAxis,
+    opacityPreset,
+    opacityMultiplier,
+    setCurrentSliceIndex,
+    setTotalSlices,
+  } = useAppStore()
+
+  // Initialize vtk.js rendering context
+  useEffect(() => {
+    let destroyed = false
+
+    async function init() {
+      if (!containerRef.current) return
+      await loadVtkModules()
+      if (destroyed) return
+
+      const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
+        rootContainer: containerRef.current,
+        containerStyle: {
+          height: '100%',
+          width: '100%',
+          position: 'absolute',
+        },
+        background: [0.1, 0.1, 0.12],
+      })
+
+      const renderer = fullScreenRenderer.getRenderer()
+      const renderWindow = fullScreenRenderer.getRenderWindow()
+
+      vtkContextRef.current = {
+        fullScreenRenderer,
+        renderer,
+        renderWindow,
+        actors: [],
+        volumes: [],
+      }
+
+      setVtkReady(true)
+    }
+
+    init()
+
+    return () => {
+      destroyed = true
+      if (vtkContextRef.current) {
+        vtkContextRef.current.fullScreenRenderer.delete()
+        vtkContextRef.current = null
+      }
+    }
+  }, [])
+
+  // Build vtkImageData from volumeData (shared by volume + slice rendering)
+  const imageDataRef = useRef(null)
+  useEffect(() => {
+    if (!vtkReady || !volumeData) {
+      imageDataRef.current = null
+      return
+    }
+    const imageData = vtkImageData.newInstance()
+    const { dimensions, spacing, origin, scalars } = volumeData
+    imageData.setDimensions(dimensions)
+    imageData.setSpacing(spacing || [1, 1, 1])
+    imageData.setOrigin(origin || [0, 0, 0])
+
+    const scalarArray = vtkDataArray.newInstance({
+      numberOfComponents: 1,
+      values: new Float32Array(scalars),
+      name: 'Scalars',
+    })
+    imageData.getPointData().setScalars(scalarArray)
+    imageDataRef.current = imageData
+
+    // Set total slices for the default axis
+    const dims = imageData.getDimensions()
+    setTotalSlices(dims[2]) // axial = Z dimension by default
+  }, [vtkReady, volumeData, setTotalSlices])
+
+  // Load volume data when available (reacts to opacity preset/multiplier changes)
+  useEffect(() => {
+    if (!vtkReady || !vtkContextRef.current || !imageDataRef.current) return
+    if (viewMode !== VIEW_MODES.VOLUME) return
+
+    const { renderer, renderWindow } = vtkContextRef.current
+    const imageData = imageDataRef.current
+
+    // Clear previous actors
+    renderer.removeAllVolumes()
+    renderer.removeAllActors()
+
+    try {
+      const spacing = imageData.getSpacing()
+
+      // Volume mapper
+      const mapper = vtkVolumeMapper.newInstance()
+      mapper.setInputData(imageData)
+      const minSpacing = Math.min(...spacing)
+      mapper.setSampleDistance(minSpacing * 0.5)
+
+      // Determine if CT data
+      const scalarArray = imageData.getPointData().getScalars()
+      const dataRange = scalarArray.getRange()
+      const rangeMin = dataRange[0]
+      const rangeMax = dataRange[1]
+      const isCTData = rangeMin < -500
+
+      const ctfun = vtkColorTransferFunction.newInstance()
+      const ofun = vtkPiecewiseFunction.newInstance()
+
+      if (isCTData) {
+        // Use preset-based transfer functions
+        const preset = CT_OPACITY_PRESETS[opacityPreset] || CT_OPACITY_PRESETS.skin
+
+        for (const [val, r, g, b] of preset.color) {
+          ctfun.addRGBPoint(val, r, g, b)
+        }
+        for (const [val, baseOpacity] of preset.opacity) {
+          ofun.addPoint(val, baseOpacity * opacityMultiplier)
+        }
+      } else {
+        // Generic transfer function for MRI and other modalities
+        const rangeWidth = rangeMax - rangeMin || 1
+        ctfun.addRGBPoint(rangeMin, 0, 0, 0)
+        ctfun.addRGBPoint(rangeMin + rangeWidth * 0.25, 0.4, 0.3, 0.4)
+        ctfun.addRGBPoint(rangeMin + rangeWidth * 0.5, 0.7, 0.6, 0.65)
+        ctfun.addRGBPoint(rangeMin + rangeWidth * 0.75, 0.9, 0.85, 0.8)
+        ctfun.addRGBPoint(rangeMax, 1, 1, 1)
+
+        ofun.addPoint(rangeMin, 0)
+        ofun.addPoint(rangeMin + rangeWidth * 0.1, 0)
+        ofun.addPoint(rangeMin + rangeWidth * 0.3, 0.05 * opacityMultiplier)
+        ofun.addPoint(rangeMin + rangeWidth * 0.5, 0.2 * opacityMultiplier)
+        ofun.addPoint(rangeMin + rangeWidth * 0.8, 0.5 * opacityMultiplier)
+        ofun.addPoint(rangeMax, 0.8 * opacityMultiplier)
+      }
+
+      const avgSpacing = (spacing[0] + spacing[1] + spacing[2]) / 3
+
+      // Volume actor
+      const volume = vtkVolume.newInstance()
+      volume.setMapper(mapper)
+      volume.getProperty().setRGBTransferFunction(0, ctfun)
+      volume.getProperty().setScalarOpacity(0, ofun)
+      volume.getProperty().setScalarOpacityUnitDistance(0, avgSpacing)
+      volume.getProperty().setInterpolationTypeToLinear()
+      volume.getProperty().setShade(true)
+      volume.getProperty().setAmbient(0.2)
+      volume.getProperty().setDiffuse(0.7)
+      volume.getProperty().setSpecular(0.3)
+      volume.getProperty().setSpecularPower(8.0)
+
+      renderer.addVolume(volume)
+      renderer.resetCamera()
+      renderWindow.render()
+
+      vtkContextRef.current.volumes = [volume]
+    } catch (err) {
+      console.error('Failed to render volume:', err)
+    }
+  }, [vtkReady, volumeData, viewMode, opacityPreset, opacityMultiplier])
+
+  // Load surface data when available
+  useEffect(() => {
+    if (!vtkReady || !vtkContextRef.current || !surfaceData) return
+    if (viewMode !== VIEW_MODES.SURFACE) return
+
+    const { renderer, renderWindow } = vtkContextRef.current
+
+    renderer.removeAllVolumes()
+    renderer.removeAllActors()
+
+    try {
+      // Parse the VTP binary data using vtk.js XML reader
+      const reader = vtkXMLPolyDataReader.newInstance()
+      reader.parseAsArrayBuffer(surfaceData)
+      const polyData = reader.getOutputData(0)
+
+      if (!polyData) {
+        console.error('Failed to parse surface VTP data')
+        return
+      }
+
+      const mapper = vtkMapper.newInstance()
+      mapper.setInputData(polyData)
+
+      const actor = vtkActor.newInstance()
+      actor.setMapper(mapper)
+      actor.getProperty().setColor(0.8, 0.75, 0.7)
+      actor.getProperty().setOpacity(1.0)
+
+      renderer.addActor(actor)
+      renderer.resetCamera()
+      renderWindow.render()
+
+      vtkContextRef.current.actors = [actor]
+    } catch (err) {
+      console.error('Failed to render surface:', err)
+    }
+  }, [vtkReady, surfaceData, viewMode])
+
+  // Apply flip transforms
+  useEffect(() => {
+    if (!vtkContextRef.current) return
+    const { renderWindow, volumes, actors } = vtkContextRef.current
+    const allActors = [...(volumes || []), ...(actors || [])]
+
+    for (const actor of allActors) {
+      if (actor.setScale) {
+        actor.setScale(isFlippedH ? -1 : 1, isFlippedV ? -1 : 1, 1)
+      }
+    }
+
+    renderWindow.render()
+  }, [isFlippedH, isFlippedV])
+
+  // Unified clipping: slice view + user clip planes (combined into one effect to avoid conflicts)
+  useEffect(() => {
+    if (!vtkContextRef.current) return
+
+    const { renderWindow, volumes, actors } = vtkContextRef.current
+
+    // Apply clip planes to both volumes and surface actors
+    const allMappables = [...(volumes || []), ...(actors || [])]
+
+    for (const obj of allMappables) {
+      const mapper = obj.getMapper()
+      if (!mapper) continue
+
+      // Remove all existing clipping planes first
+      mapper.removeAllClippingPlanes()
+
+      const bounds = mapper.getBounds()
+      if (!bounds || bounds.length < 6) continue
+
+      // --- Slice clipping (for volume mode only, when slice index > 0) ---
+      if (viewMode === VIEW_MODES.VOLUME && imageDataRef.current && totalSlices > 0 && currentSliceIndex > 0) {
+        const imageData = imageDataRef.current
+        const dims = imageData.getDimensions()
+        const spacing = imageData.getSpacing()
+        const origin = imageData.getOrigin()
+        const axisIndex = SLICING_MODE_MAP[sliceAxis] ?? 2
+        const maxSlice = dims[axisIndex]
+
+        if (maxSlice !== totalSlices) {
+          setTotalSlices(maxSlice)
+        }
+
+        const clampedSlice = Math.min(currentSliceIndex, maxSlice - 1)
+        const slicePos = origin[axisIndex] + clampedSlice * spacing[axisIndex]
+        const halfThickness = spacing[axisIndex] * 0.6
+
+        // Front clip plane
+        const frontOrigin = [origin[0], origin[1], origin[2]]
+        frontOrigin[axisIndex] = slicePos - halfThickness
+        const frontNormal = [0, 0, 0]
+        frontNormal[axisIndex] = 1
+        mapper.addClippingPlane(
+          vtkPlane.newInstance({ normal: frontNormal, origin: frontOrigin })
+        )
+
+        // Back clip plane
+        const backOrigin = [origin[0], origin[1], origin[2]]
+        backOrigin[axisIndex] = slicePos + halfThickness
+        const backNormal = [0, 0, 0]
+        backNormal[axisIndex] = -1
+        mapper.addClippingPlane(
+          vtkPlane.newInstance({ normal: backNormal, origin: backOrigin })
+        )
+      }
+
+      // --- User clip planes ---
+      if (clipPlanes.axial.enabled) {
+        const z = bounds[4] + clipPlanes.axial.value * (bounds[5] - bounds[4])
+        mapper.addClippingPlane(
+          vtkPlane.newInstance({ normal: [0, 0, 1], origin: [0, 0, z] })
+        )
+      }
+
+      if (clipPlanes.sagittal.enabled) {
+        const x = bounds[0] + clipPlanes.sagittal.value * (bounds[1] - bounds[0])
+        mapper.addClippingPlane(
+          vtkPlane.newInstance({ normal: [1, 0, 0], origin: [x, 0, 0] })
+        )
+      }
+
+      if (clipPlanes.coronal.enabled) {
+        const y = bounds[2] + clipPlanes.coronal.value * (bounds[3] - bounds[2])
+        mapper.addClippingPlane(
+          vtkPlane.newInstance({ normal: [0, 1, 0], origin: [0, y, 0] })
+        )
+      }
+    }
+
+    renderWindow.render()
+  }, [clipPlanes, volumeData, viewMode, currentSliceIndex, sliceAxis, totalSlices, setTotalSlices])
+
+  return (
+    <div className="viewer-screen">
+      <div ref={containerRef} className="vtk-container" />
+    </div>
+  )
+}

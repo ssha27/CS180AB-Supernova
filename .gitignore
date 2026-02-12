@@ -1,2 +1,33 @@
+# Skills / agent config
 .skills
+
+# Spec doc (local only)
 documentation/specification-document.md
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts
+frontend/dist/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+
+# Uploads (runtime data)
+backend/uploads/
+test
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
