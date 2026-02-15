@@ -1,23 +1,14 @@
-version: "3.8"
-
 services:
-  # ─── Frontend (React + Vite) ───
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
-    environment:
-      - VITE_API_URL=http://api-gateway:4000/api
     depends_on:
       - api-gateway
-    volumes:
-      - ./frontend/src:/app/src
     networks:
       - supernova
-
-  # ─── API Gateway (Node.js + Express) ───
   api-gateway:
     build:
       context: ./backend
@@ -34,8 +25,6 @@ services:
       - upload-data:/app/uploads
     networks:
       - supernova
-
-  # ─── DICOM Processing Service (Python + FastAPI) ───
   dicom-service:
     build:
       context: ./backend/dicom-service
@@ -44,6 +33,8 @@ services:
       - "5000:5000"
     environment:
       - DICOM_PORT=5000
+      - TOTALSEG_DEVICE=auto
+      - UPLOAD_DIR=/app/uploads
     volumes:
       - upload-data:/app/uploads
     networks:

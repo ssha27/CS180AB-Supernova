@@ -11,6 +11,10 @@ dependencies = [
     "vtk>=9.3.0",
     "SimpleITK>=2.3.0",
     "python-multipart>=0.0.12",
+    "nibabel>=5.2.0",
+    "TotalSegmentator>=2.3.0",
+    "torch>=2.0.0",
+    "scipy>=1.12.0",
 ]
 
 [project.optional-dependencies]

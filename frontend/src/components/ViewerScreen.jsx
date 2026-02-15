@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore, VIEW_MODES, heavyDataCache } from '../store/appStore'
-import { fetchSurfaceData } from '../services/api'
+import { fetchSurfaceData, fetchSegmentManifest, fetchSegmentMesh } from '../services/api'
 import './ViewerScreen.css'
 
 // vtk.js imports — loaded dynamically to avoid SSR issues
@@ -140,34 +140,6 @@ const CT_OPACITY_PRESETS = {
       [1500, 0.95],
     ],
   },
-  lung: {
-    label: 'Lung',
-    color: [
-      [-1000, 0, 0, 0],
-      [-900, 0.1, 0.1, 0.2],
-      [-800, 0.25, 0.4, 0.7],
-      [-600, 0.3, 0.55, 0.85],
-      [-400, 0.15, 0.35, 0.6],
-      [-200, 0.5, 0.4, 0.35],
-      [-50, 0.7, 0.55, 0.45],
-      [0, 0.8, 0.65, 0.55],
-      [200, 0.9, 0.8, 0.7],
-      [500, 1, 0.95, 0.9],
-    ],
-    opacity: [
-      [-1000, 0],
-      [-950, 0],
-      [-900, 0.01],
-      [-800, 0.15],
-      [-600, 0.35],
-      [-400, 0.15],
-      [-200, 0],
-      [-50, 0],
-      [0, 0.01],
-      [200, 0.02],
-      [500, 0.1],
-    ],
-  },
 }
 
 /** Slicing mode enum matching vtk.js ImageMapper.SlicingMode */
@@ -198,6 +170,12 @@ export default function ViewerScreen() {
     opacityMultiplier,
     setCurrentSliceIndex,
     setTotalSlices,
+    segmentsAvailable,
+    segmentManifest,
+    activeSegments,
+    setSegmentsAvailable,
+    setSegmentManifest,
+    setSegmentLoading,
   } = useAppStore()
 
   // Pipeline object refs — track vtk.js objects for reuse and cleanup.
@@ -211,6 +189,7 @@ export default function ViewerScreen() {
   const surfaceMapperRef = useRef(null)
   const clipPlaneObjectsRef = useRef([])   // Track vtkPlane instances for cleanup
   const surfaceLoadedRef = useRef(false)    // Track if surface has been lazy-loaded
+  const segmentActorsRef = useRef({})        // { structureName: { actor, mapper } }
 
   /** Safely delete vtk.js objects to free GPU/WASM resources. */
   function cleanupVtk(...objects) {
@@ -260,6 +239,11 @@ export default function ViewerScreen() {
       for (const p of clipPlaneObjectsRef.current) { try { p.delete() } catch (_) {} }
       clipPlaneObjectsRef.current = []
       surfaceLoadedRef.current = false
+      // Clean up organ segment actors
+      for (const s of Object.values(segmentActorsRef.current)) {
+        cleanupVtk(s.actor, s.mapper)
+      }
+      segmentActorsRef.current = {}
       cleanupVtk(
         volumeRef.current, volumeMapperRef.current,
         ctfRef.current, ofRef.current,
@@ -507,11 +491,149 @@ export default function ViewerScreen() {
     }
   }, [vtkReady, surfaceData, viewMode])
 
+  // ─── Organ segment manifest fetch ───────────────────────────────────
+  // After job completion, fetch the list of available segments if the backend
+  // reported that segmentation succeeded.
+  useEffect(() => {
+    if (!jobId || !segmentsAvailable) return
+    if (segmentManifest.length > 0) return  // already fetched
+
+    let cancelled = false
+    async function load() {
+      try {
+        const manifest = await fetchSegmentManifest(jobId)
+        if (!cancelled && Array.isArray(manifest)) {
+          setSegmentManifest(manifest)
+        }
+      } catch (err) {
+        console.error('Failed to fetch segment manifest:', err)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [jobId, segmentsAvailable, segmentManifest.length, setSegmentManifest])
+
+  // ─── Organ segment rendering ────────────────────────────────────────
+  // When activeSegments changes, load meshes on demand and add/remove
+  // vtkActor objects from the renderer.
+  useEffect(() => {
+    if (!vtkReady || !vtkContextRef.current || !jobId) return
+
+    const { renderer, renderWindow } = vtkContextRef.current
+    const currentActors = segmentActorsRef.current
+
+    // Remove actors for segments that are no longer active
+    for (const name of Object.keys(currentActors)) {
+      if (!activeSegments.has(name)) {
+        try {
+          renderer.removeActor(currentActors[name].actor)
+        } catch (_) {}
+        // Keep the cached objects — don't delete() them so re-toggle is instant
+      }
+    }
+
+    // Add actors for newly active segments
+    const toLoad = []
+    for (const name of activeSegments) {
+      if (currentActors[name]) {
+        // Already parsed — just re-add to renderer if removed
+        try {
+          renderer.addActor(currentActors[name].actor)
+        } catch (_) {}
+        continue
+      }
+      // Need to fetch + parse
+      toLoad.push(name)
+    }
+
+    if (toLoad.length === 0) {
+      renderWindow.render()
+      return
+    }
+
+    // Find colors from the manifest
+    const colorMap = {}
+    for (const entry of segmentManifest) {
+      colorMap[entry.name] = entry.color
+    }
+
+    let cancelled = false
+    async function loadMeshes() {
+      for (const name of toLoad) {
+        if (cancelled) break
+
+        // Use cached buffer or fetch
+        let buffer = heavyDataCache.segmentBuffers[name]
+        if (!buffer) {
+          try {
+            setSegmentLoading(name, true)
+            buffer = await fetchSegmentMesh(jobId, name)
+            heavyDataCache.segmentBuffers[name] = buffer
+          } catch (err) {
+            console.error(`Failed to load segment mesh: ${name}`, err)
+            setSegmentLoading(name, false)
+            continue
+          }
+        }
+
+        if (cancelled) break
+
+        try {
+          const reader = vtkXMLPolyDataReader.newInstance()
+          reader.parseAsArrayBuffer(buffer)
+          const polyData = reader.getOutputData(0)
+          reader.delete()
+
+          if (!polyData || polyData.getNumberOfPoints() < 3) continue
+
+          const mapper = vtkMapper.newInstance()
+          mapper.setInputData(polyData)
+
+          const actor = vtkActor.newInstance()
+          actor.setMapper(mapper)
+
+          const color = colorMap[name] || [0.7, 0.7, 0.7]
+          const prop = actor.getProperty()
+          prop.setColor(color[0], color[1], color[2])
+          prop.setOpacity(1.0)
+          prop.setBackfaceCulling(false)
+          // Realistic shading: diffuse + specular highlights
+          prop.setAmbient(0.15)
+          prop.setDiffuse(0.7)
+          prop.setSpecular(0.3)
+          prop.setSpecularPower(20)
+          prop.setInterpolationToPhong()
+
+          // Apply any active flips
+          const isFlippedHNow = useAppStore.getState().isFlippedH
+          const isFlippedVNow = useAppStore.getState().isFlippedV
+          actor.setScale(isFlippedHNow ? -1 : 1, isFlippedVNow ? -1 : 1, 1)
+
+          currentActors[name] = { actor, mapper }
+          renderer.addActor(actor)
+        } catch (err) {
+          console.error(`Failed to parse segment mesh: ${name}`, err)
+        } finally {
+          setSegmentLoading(name, false)
+        }
+      }
+
+      if (!cancelled) {
+        renderWindow.render()
+      }
+    }
+
+    loadMeshes()
+    return () => { cancelled = true }
+  }, [vtkReady, activeSegments, jobId, segmentManifest, setSegmentLoading])
+
   // Apply flip transforms
   useEffect(() => {
     if (!vtkContextRef.current) return
     const { renderer, renderWindow, volumes, actors } = vtkContextRef.current
-    const allActors = [...(volumes || []), ...(actors || [])]
+    // Include organ segment actors in the flip
+    const segActors = Object.values(segmentActorsRef.current).map(s => s.actor)
+    const allActors = [...(volumes || []), ...(actors || []), ...segActors]
     const isOddFlip = isFlippedH !== isFlippedV
 
     // When an odd number of axes are negatively scaled the triangle winding
@@ -550,8 +672,11 @@ export default function ViewerScreen() {
       return plane
     }
 
-    // Apply clip planes to both volumes and surface actors
-    const allMappables = [...(volumes || []), ...(actors || [])]
+    // Apply clip planes to volumes, surface actors, AND organ segment actors
+    const segActorList = Object.entries(segmentActorsRef.current)
+      .filter(([name]) => activeSegments.has(name))
+      .map(([, s]) => s.actor)
+    const allMappables = [...(volumes || []), ...(actors || []), ...segActorList]
 
     for (const obj of allMappables) {
       const mapper = obj.getMapper()
@@ -623,7 +748,7 @@ export default function ViewerScreen() {
     }
 
     renderWindow.render()
-  }, [clipPlanes, volumeData, viewMode, currentSliceIndex, sliceAxis, totalSlices, setTotalSlices])
+  }, [clipPlanes, volumeData, viewMode, currentSliceIndex, sliceAxis, totalSlices, setTotalSlices, activeSegments])
 
   return (
     <div className="viewer-screen">

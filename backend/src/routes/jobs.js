@@ -98,4 +98,42 @@ router.get('/jobs/:jobId/metadata', async (req, res) => {
   }
 })
 
+/**
+ * GET /api/jobs/:jobId/segments
+ * Fetch the organ segment manifest (JSON list of available structures).
+ */
+router.get('/jobs/:jobId/segments', async (req, res) => {
+  try {
+    const manifestPath = path.join(getUploadDir(), req.params.jobId, 'segments', 'manifest.json')
+    if (!fs.existsSync(manifestPath)) {
+      return res.status(404).json({ error: 'No segment data available.' })
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+    res.json(manifest)
+  } catch (err) {
+    console.error('Failed to fetch segment manifest:', err)
+    res.status(500).json({ error: 'Failed to fetch segment manifest.' })
+  }
+})
+
+/**
+ * GET /api/jobs/:jobId/segments/:structureName
+ * Stream a per-organ .vtp mesh file.
+ */
+router.get('/jobs/:jobId/segments/:structureName', async (req, res) => {
+  try {
+    const vtpPath = path.join(
+      getUploadDir(), req.params.jobId, 'segments', `${req.params.structureName}.vtp`
+    )
+    if (!fs.existsSync(vtpPath)) {
+      return res.status(404).json({ error: `Segment '${req.params.structureName}' not found.` })
+    }
+    res.setHeader('Content-Type', 'application/octet-stream')
+    fs.createReadStream(vtpPath).pipe(res)
+  } catch (err) {
+    console.error('Failed to fetch segment mesh:', err)
+    res.status(500).json({ error: 'Failed to fetch segment mesh.' })
+  }
+})
+
 export { router as jobsRouter }

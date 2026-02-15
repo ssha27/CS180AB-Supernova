@@ -7,6 +7,7 @@ import { create } from 'zustand'
 export const heavyDataCache = {
   volumeScalars: null,   // Float32Array — zero-copy view over the server ArrayBuffer
   surfaceBuffer: null,   // ArrayBuffer (set lazily, freed after vtk parse)
+  segmentBuffers: {},    // { structureName: ArrayBuffer } — cached organ mesh data
 }
 
 /**
@@ -43,7 +44,6 @@ export const OPACITY_PRESETS = {
   SKIN: 'skin',
   MUSCLE: 'muscle',
   BONE: 'bone',
-  LUNG: 'lung',
 }
 
 export const useAppStore = create((set, get) => ({
@@ -80,6 +80,12 @@ export const useAppStore = create((set, get) => ({
   opacityPreset: 'skin',
   opacityMultiplier: 1.0,
 
+  // Organ segmentation state
+  segmentsAvailable: false,
+  segmentManifest: [],        // Array of {name, displayName, color, file, fileSize}
+  activeSegments: new Set(),  // Set of currently visible structure names
+  segmentLoadingSet: new Set(), // Set of structures currently being fetched
+
   // Actions
   setUploadState: (state) => set({ uploadState: state }),
   setUploadProgress: (progress) => set({ uploadProgress: progress }),
@@ -94,6 +100,7 @@ export const useAppStore = create((set, get) => ({
   reset: () => {
     heavyDataCache.volumeScalars = null
     heavyDataCache.surfaceBuffer = null
+    heavyDataCache.segmentBuffers = {}
     set({
       uploadState: UPLOAD_STATES.IDLE,
       uploadProgress: 0,
@@ -113,6 +120,10 @@ export const useAppStore = create((set, get) => ({
       sliceAxis: 'axial',
       opacityPreset: 'skin',
       opacityMultiplier: 1.0,
+      segmentsAvailable: false,
+      segmentManifest: [],
+      activeSegments: new Set(),
+      segmentLoadingSet: new Set(),
     })
   },
 
@@ -146,6 +157,41 @@ export const useAppStore = create((set, get) => ({
   setSliceAxis: (axis) => set({ sliceAxis: axis, currentSliceIndex: 0 }),
   setOpacityPreset: (preset) => set({ opacityPreset: preset }),
   setOpacityMultiplier: (value) => set({ opacityMultiplier: value }),
+
+  // Segment actions
+  setSegmentsAvailable: (available) => set({ segmentsAvailable: available }),
+  setSegmentManifest: (manifest) => set({ segmentManifest: manifest }),
+
+  toggleSegment: (name) => set((state) => {
+    const next = new Set(state.activeSegments)
+    if (next.has(name)) {
+      next.delete(name)
+    } else {
+      next.add(name)
+    }
+    return { activeSegments: next }
+  }),
+
+  showOnlySegment: (name) => set(() => {
+    return { activeSegments: new Set([name]) }
+  }),
+
+  showAllSegments: () => set((state) => {
+    const all = new Set(state.segmentManifest.map((s) => s.name))
+    return { activeSegments: all }
+  }),
+
+  clearSegments: () => set({ activeSegments: new Set() }),
+
+  setSegmentLoading: (name, loading) => set((state) => {
+    const next = new Set(state.segmentLoadingSet)
+    if (loading) {
+      next.add(name)
+    } else {
+      next.delete(name)
+    }
+    return { segmentLoadingSet: next }
+  }),
 
   // Computed helpers
   setViewerData: ({ volumeData, surfaceAvailable, metadata, totalSlices, is2DFallback, fallbackMessage }) =>

@@ -20,6 +20,7 @@ export default function UploadScreen() {
     setError,
     setViewerData,
     reset,
+    setSegmentsAvailable,
   } = useAppStore()
 
   const pollJobStatus = useCallback(
@@ -54,6 +55,11 @@ export default function UploadScreen() {
             is2DFallback: status.result?.is2DFallback || false,
             fallbackMessage: status.result?.fallbackMessage,
           })
+
+          // Set organ segmentation availability from backend result
+          if (status.result?.segmentsAvailable) {
+            setSegmentsAvailable(true)
+          }
           return
         }
 
@@ -73,7 +79,7 @@ export default function UploadScreen() {
         setError(err.message)
       }
     },
-    [setViewerData, setError, setProcessingProgress]
+    [setViewerData, setError, setProcessingProgress, setSegmentsAvailable]
   )
 
   const handleUpload = useCallback(

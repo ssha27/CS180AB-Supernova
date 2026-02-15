@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore, VIEW_MODES, UPLOAD_STATES, SLICE_AXES, OPACITY_PRESETS } from '../store/appStore'
 import './Toolbar.css'
 
@@ -23,15 +24,90 @@ export default function Toolbar() {
     setOpacityPreset,
     opacityMultiplier,
     setOpacityMultiplier,
+    segmentsAvailable,
+    segmentManifest,
+    activeSegments,
+    segmentLoadingSet,
+    toggleSegment,
+    showOnlySegment,
+    showAllSegments,
+    clearSegments,
   } = useAppStore()
+
+  const toolbarRef = useRef(null)
+  const [toolbarHeight, setToolbarHeight] = useState(null) // null = auto
+  const [minToolbarHeight, setMinToolbarHeight] = useState(48)
+  const isDragging = useRef(false)
+  const dragStartY = useRef(0)
+  const dragStartHeight = useRef(0)
+
+  // Measure the minimum height based on the tallest non-organ section
+  useEffect(() => {
+    const toolbar = toolbarRef.current
+    if (!toolbar) return
+
+    const measure = () => {
+      const groups = toolbar.querySelectorAll('.toolbar-group:not(.toolbar-group-organs)')
+      let maxH = 48 // minimum fallback
+      for (const g of groups) {
+        const h = g.getBoundingClientRect().height
+        if (h > maxH) maxH = h
+      }
+      // Add toolbar padding (top + bottom ~1.2rem ≈ ~20px) + border
+      setMinToolbarHeight(Math.ceil(maxH + 22))
+    }
+
+    measure()
+    const ro = new ResizeObserver(measure)
+    for (const g of toolbar.querySelectorAll('.toolbar-group:not(.toolbar-group-organs)')) {
+      ro.observe(g)
+    }
+    return () => ro.disconnect()
+  }, [uploadState, viewMode, is2DFallback])
+
+  // Drag handlers
+  const onPointerDown = useCallback((e) => {
+    e.preventDefault()
+    isDragging.current = true
+    dragStartY.current = e.clientY
+    const toolbar = toolbarRef.current
+    dragStartHeight.current = toolbar ? toolbar.getBoundingClientRect().height : 200
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
+  }, [])
+
+  useEffect(() => {
+    const onPointerMove = (e) => {
+      if (!isDragging.current) return
+      const delta = e.clientY - dragStartY.current
+      const newH = Math.max(minToolbarHeight, dragStartHeight.current + delta)
+      setToolbarHeight(newH)
+    }
+    const onPointerUp = () => {
+      if (!isDragging.current) return
+      isDragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+    }
+  }, [minToolbarHeight])
 
   const isViewing =
     uploadState === UPLOAD_STATES.VIEWING || uploadState === UPLOAD_STATES.READY
 
   if (!isViewing) return null
 
+  const toolbarStyle = toolbarHeight != null
+    ? { height: toolbarHeight, maxHeight: toolbarHeight, overflow: 'hidden' }
+    : {}
+
   return (
-    <div className="toolbar">
+    <div className="toolbar" ref={toolbarRef} style={toolbarStyle}>
       <div className="toolbar-group">
         <button className="toolbar-btn" onClick={reset} title="New Upload">
           ← New
@@ -176,8 +252,70 @@ export default function Toolbar() {
               </>
             )}
           </div>
+
+          {/* Detected Organs */}
+          {segmentsAvailable && segmentManifest.length > 0 && (
+            <div className="toolbar-group toolbar-group-organs">
+              <span className="toolbar-label">Detected Organs</span>
+              <div className="organ-actions">
+                <button
+                  className="toolbar-btn toolbar-btn-sm"
+                  onClick={showAllSegments}
+                  title="Show all detected organs"
+                >
+                  Show All
+                </button>
+                <button
+                  className="toolbar-btn toolbar-btn-sm"
+                  onClick={clearSegments}
+                  title="Hide all organ meshes"
+                >
+                  Hide All
+                </button>
+              </div>
+              <div className="organ-list">
+                {segmentManifest.map((seg) => (
+                  <div key={seg.name} className="organ-item">
+                    <span
+                      className="organ-color-dot"
+                      style={{
+                        backgroundColor: `rgb(${Math.round(seg.color[0] * 255)}, ${Math.round(seg.color[1] * 255)}, ${Math.round(seg.color[2] * 255)})`,
+                      }}
+                    />
+                    <label className="organ-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={activeSegments.has(seg.name)}
+                        onChange={() => toggleSegment(seg.name)}
+                      />
+                      <span
+                        className="organ-name"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          showOnlySegment(seg.name)
+                        }}
+                        title={`Show only ${seg.displayName}`}
+                      >
+                        {seg.displayName}
+                      </span>
+                    </label>
+                    {segmentLoadingSet.has(seg.name) && (
+                      <span className="organ-loading">⏳</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
+
+      {/* Drag handle for vertical resize */}
+      <div
+        className="toolbar-resize-handle"
+        onPointerDown={onPointerDown}
+        title="Drag to resize toolbar"
+      />
     </div>
   )
 }

@@ -21,6 +21,8 @@ import pydicom
 
 from .anonymize import strip_pii
 from .job_store import set_job_status, update_job_progress
+from .segmentation import run_segmentation
+from .organ_meshes import generate_organ_meshes
 
 # Minimum number of slices required for 3D reconstruction
 MIN_SLICES_FOR_3D = 10
@@ -68,15 +70,51 @@ def process_dicom_job(job_id: str, input_dir: str) -> None:
 
         # Step 6: Stack slices into 3D volume
         volume, spacing, origin = _stack_slices(dcm_datasets)
-        update_job_progress(job_id, 55)
+        update_job_progress(job_id, 45)
 
         # Step 7: Generate volume rendering data
         _save_volume_data(input_dir, volume, spacing, origin)
-        update_job_progress(job_id, 70)
+        update_job_progress(job_id, 55)
 
         # Step 8: Generate surface mesh via Marching Cubes
         _save_surface_mesh(input_dir, volume, spacing, origin)
-        update_job_progress(job_id, 90)
+        update_job_progress(job_id, 65)
+
+        # Step 9: Organ segmentation via TotalSegmentator
+        segments_available = False
+        segment_count = 0
+        is_ct = float(volume.min()) < -500
+        if is_ct:
+            try:
+                seg_result = run_segmentation(
+                    volume, spacing, origin, input_dir,
+                    on_progress=lambda p: update_job_progress(
+                        job_id, 65 + int(p * 0.15)  # 65→80%
+                    ),
+                )
+                update_job_progress(job_id, 80)
+
+                # Step 10: Generate per-organ meshes
+                if seg_result["structures"] and seg_result["label_volume_path"]:
+                    manifest = generate_organ_meshes(
+                        seg_result["label_volume_path"],
+                        seg_result["structures"],
+                        spacing, origin, input_dir,
+                        on_progress=lambda p: update_job_progress(
+                            job_id, 80 + int(p * 0.15)  # 80→95%
+                        ),
+                    )
+                    segments_available = len(manifest) > 0
+                    segment_count = len(manifest)
+            except Exception as seg_err:
+                # Segmentation failure is non-fatal — log and continue
+                import traceback as tb
+                tb.print_exc()
+                print(f"Segmentation skipped: {seg_err}")
+        else:
+            print("Non-CT data — skipping organ segmentation")
+
+        update_job_progress(job_id, 95)
 
         # Done
         set_job_status(job_id, {
@@ -88,6 +126,8 @@ def process_dicom_job(job_id: str, input_dir: str) -> None:
                 "spacing": list(spacing),
                 "is2DFallback": False,
                 "metadata": metadata,
+                "segmentsAvailable": segments_available,
+                "segmentCount": segment_count,
             },
         })
 

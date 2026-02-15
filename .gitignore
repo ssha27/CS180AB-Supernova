@@ -3,6 +3,8 @@
 
 # Spec doc (local only)
 documentation/specification-document.md
+USAGE.md
+WORKFLOW.md
 
 # Dependencies
 node_modules/

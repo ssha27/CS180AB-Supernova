@@ -118,3 +118,33 @@ export async function fetchMetadata(jobId) {
   }
   return res.json()
 }
+
+/**
+ * Fetch the organ segment manifest for a job.
+ * Returns an array of available structures with names, colors, and file info.
+ *
+ * @param {string} jobId
+ * @returns {Promise<Array<{name: string, displayName: string, color: number[], file: string, fileSize: number}>>}
+ */
+export async function fetchSegmentManifest(jobId) {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/segments`)
+  if (!res.ok) {
+    throw new Error(`Failed to fetch segment manifest (${res.status})`)
+  }
+  return res.json()
+}
+
+/**
+ * Fetch a per-organ .vtp mesh for a specific structure.
+ *
+ * @param {string} jobId
+ * @param {string} structureName - The structure identifier (e.g., "heart", "liver")
+ * @returns {Promise<ArrayBuffer>}
+ */
+export async function fetchSegmentMesh(jobId, structureName) {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/segments/${structureName}`)
+  if (!res.ok) {
+    throw new Error(`Failed to fetch segment mesh for ${structureName} (${res.status})`)
+  }
+  return res.arrayBuffer()
+}
