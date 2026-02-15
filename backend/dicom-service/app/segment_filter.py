@@ -103,12 +103,6 @@ ANATOMICAL_MIN_VOLUME_CM3: dict[str, float] = {
 # Default for structures not in the table (individual vertebrae, ribs, etc.)
 _DEFAULT_MIN_VOLUME_CM3 = 1.5
 
-# ──────────────────────────────────────────────────────────────────────
-# D.  Scan-region → plausible structure mapping
-# ──────────────────────────────────────────────────────────────────────
-# Each region lists structures that COULD plausibly appear.
-# Structures not in ANY matching region set are rejected.
-
 _HEAD_STRUCTURES = {
     "skull", "brain", "spinal_cord",
     "vertebrae_C1", "vertebrae_C2", "vertebrae_C3", "vertebrae_C4",
@@ -130,12 +124,9 @@ _CHEST_STRUCTURES = {
     "humerus_left", "humerus_right", "scapula_left", "scapula_right",
     "clavicula_left", "clavicula_right",
     "autochthon_left", "autochthon_right",
-    # Ribs
     *(f"rib_left_{i}" for i in range(1, 13)),
     *(f"rib_right_{i}" for i in range(1, 13)),
-    # Thoracic vertebrae
     *(f"vertebrae_T{i}" for i in range(1, 13)),
-    # Cervical vertebrae (lower ones visible in chest CTs)
     "vertebrae_C5", "vertebrae_C6", "vertebrae_C7",
 }
 
@@ -148,10 +139,8 @@ _ABDOMEN_STRUCTURES = {
     "portal_vein_and_splenic_vein",
     "spinal_cord", "costal_cartilages",
     "autochthon_left", "autochthon_right",
-    # Lower ribs visible in abdominal CTs
     *(f"rib_left_{i}" for i in range(7, 13)),
     *(f"rib_right_{i}" for i in range(7, 13)),
-    # Lower thoracic + all lumbar vertebrae
     *(f"vertebrae_T{i}" for i in range(9, 13)),
     *(f"vertebrae_L{i}" for i in range(1, 6)),
 }
@@ -191,11 +180,8 @@ def detect_scan_region(
     spacing : list[float]
         Voxel spacing [dx, dy, dz] in mm.
     """
-    z_size_mm = volume.shape[0] * spacing[2]
     num_slices = volume.shape[0]
 
-    # Look at the axial density profile — tissue (HU > -300) presence
-    # along z. Peaks in the profile hint at the body regions.
     tissue_fraction = np.zeros(num_slices)
     for z in range(num_slices):
         sl = volume[z]
@@ -210,17 +196,13 @@ def detect_scan_region(
     z_min, z_max = z_indices[0], z_indices[-1]
     tissue_extent_mm = (z_max - z_min + 1) * spacing[2]
 
-    # Compute a density-weighted centre along z (0=bottom, 1=top)
     z_norm = np.linspace(0, 1, num_slices)
     weighted_centre = np.average(z_norm[z_indices],
                                  weights=tissue_fraction[z_indices])
 
     regions = []
 
-    # Heuristic rules based on the centre of mass and scan extent
-    # A full-body CT is ~1500–1700mm; a single-region scan is 200-400mm.
     if tissue_extent_mm > 800:
-        # Large scan — likely covers multiple regions
         if weighted_centre > 0.6:
             regions.extend(["head", "chest"])
         if 0.3 < weighted_centre < 0.7:
@@ -229,16 +211,9 @@ def detect_scan_region(
             regions.append("abdomen")
         if weighted_centre < 0.5:
             regions.append("pelvis")
-        # For very large scans, include everything
         if tissue_extent_mm > 1200:
             regions = ["head", "chest", "abdomen", "pelvis"]
     else:
-        # Shorter scan — the centre-of-mass determines the primary region
-        # Also look at tissue density patterns
-        upper_density = np.mean(tissue_fraction[z_max - (z_max-z_min)//4 : z_max+1])
-        lower_density = np.mean(tissue_fraction[z_min : z_min + (z_max-z_min)//4 + 1])
-
-        # Presence of large air cavities (lungs ~HU -800 to -200) suggests chest
         air_fraction = np.zeros(num_slices)
         for z in range(z_min, z_max + 1):
             sl = volume[z]
@@ -246,7 +221,6 @@ def detect_scan_region(
 
         has_lungs = np.max(air_fraction) > 0.15
 
-        # Presence of dense bone (HU > 300) in upper slices suggests head
         if weighted_centre > 0.65:
             bone_upper = np.mean(volume[z_max - (z_max-z_min)//3 : z_max+1] > 300)
             if bone_upper > 0.05 and not has_lungs:
@@ -267,11 +241,11 @@ def detect_scan_region(
             if weighted_centre < 0.35:
                 regions.append("pelvis")
 
-    # Always include adjacent regions for transition zones
+    # "Reasonable" regions that may be present in the scan
     if "chest" in regions and "abdomen" not in regions:
-        regions.append("abdomen")  # chest CTs often include upper abdomen
+        regions.append("abdomen") 
     if "abdomen" in regions and "chest" not in regions:
-        regions.append("chest")  # abdominal CTs often include lower chest
+        regions.append("chest")
     if "pelvis" in regions and "abdomen" not in regions:
         regions.append("abdomen")
 
@@ -371,7 +345,6 @@ def filter_structures(
 
         # D. Region plausibility
         if plausible and name not in plausible:
-            # Allow unknown/unmapped structures through (e.g. "structure_123")
             if not name.startswith("structure_"):
                 rejected_reasons[name] = (
                     f"not plausible for detected region(s) {regions}"

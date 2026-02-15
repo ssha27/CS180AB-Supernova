@@ -47,7 +47,6 @@ def _volume_to_nifti_path(
 
     Returns the path to the temporary .nii.gz file.
     """
-    # NIfTI expects (X, Y, Z) axis order — transpose from (Z, Y, X)
     data = np.transpose(volume, (2, 1, 0)).astype(np.float32)
 
     affine = np.eye(4)
@@ -117,7 +116,7 @@ def run_segmentation(
         if on_progress:
             on_progress(15)
 
-        # Run TotalSegmentator (fast=False for full 1.5mm resolution)
+        # Run TotalSegmentator
         try:
             totalsegmentator(
                 input=nii_input,

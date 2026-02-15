@@ -58,9 +58,6 @@ async def list_segments(job_id: str):
     if status is None:
         raise HTTPException(status_code=404, detail="Job not found.")
 
-    # Find the manifest on disk — the upload dir is passed during job creation
-    # and segments are stored under <upload_dir>/segments/manifest.json.
-    # We need to locate it via the shared upload volume.
     upload_base = os.environ.get("UPLOAD_DIR", "/app/uploads")
     manifest_path = os.path.join(upload_base, job_id, "segments", "manifest.json")
 
