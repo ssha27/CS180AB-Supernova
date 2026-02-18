@@ -54,7 +54,7 @@ def ingest_one(path: str):
     # if missing the required identifiers for SQL -> error
     if not (study_uid and series_uid and sop_uid):
         raise ValueError("Missing required DICOM UIDs (Study/Series/SOP).")
-    
+
     # getting file size and hash
     size_bytes = os.path.getsize(path)
     digest = sha256_file(path)
