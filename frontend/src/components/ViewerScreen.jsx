@@ -14,7 +14,8 @@ let vtkFullScreenRenderWindow,
   vtkPlane,
   vtkActor,
   vtkMapper,
-  vtkXMLPolyDataReader
+  vtkXMLPolyDataReader,
+  vtkPlaneSource
 
 async function loadVtkModules() {
   const vtk = await import('@kitware/vtk.js')
@@ -68,13 +69,15 @@ async function loadVtkModules() {
   const planeModule = await import('@kitware/vtk.js/Common/DataModel/Plane')
   vtkPlane = planeModule.default
 
+  // Floor grid plane source
+  const planeSourceModule = await import('@kitware/vtk.js/Filters/Sources/PlaneSource')
+  vtkPlaneSource = planeSourceModule.default
+
   return vtk
 }
 
 /**
  * CT opacity presets for different tissue types.
- * Each preset defines color and opacity transfer functions using Hounsfield units.
- * The opacity values can be scaled by the opacityMultiplier.
  */
 const CT_OPACITY_PRESETS = {
   skin: {
@@ -178,9 +181,7 @@ export default function ViewerScreen() {
     setSegmentLoading,
   } = useAppStore()
 
-  // Pipeline object refs — track vtk.js objects for reuse and cleanup.
-  // vtk.js objects hold internal GPU/WASM resources that must be explicitly .delete()'d;
-  // without this, every preset or mode change leaks ~50-100 MB of GPU memory.
+  // Pipeline object refs
   const volumeRef = useRef(null)
   const volumeMapperRef = useRef(null)
   const ctfRef = useRef(null)
@@ -190,6 +191,7 @@ export default function ViewerScreen() {
   const clipPlaneObjectsRef = useRef([])   // Track vtkPlane instances for cleanup
   const surfaceLoadedRef = useRef(false)    // Track if surface has been lazy-loaded
   const segmentActorsRef = useRef({})        // { structureName: { actor, mapper } }
+  const floorRef = useRef({ actors: [], mappers: [], source: null }) // Floor grid plane
 
   /** Safely delete vtk.js objects to free GPU/WASM resources. */
   function cleanupVtk(...objects) {
@@ -239,6 +241,11 @@ export default function ViewerScreen() {
       for (const p of clipPlaneObjectsRef.current) { try { p.delete() } catch (_) {} }
       clipPlaneObjectsRef.current = []
       surfaceLoadedRef.current = false
+      // Clean up floor grid
+      for (const a of floorRef.current.actors) { try { a.delete() } catch (_) {} }
+      for (const m of floorRef.current.mappers) { try { m.delete() } catch (_) {} }
+      try { floorRef.current.source?.delete() } catch (_) {}
+      floorRef.current = { actors: [], mappers: [], source: null }
       // Clean up organ segment actors
       for (const s of Object.values(segmentActorsRef.current)) {
         cleanupVtk(s.actor, s.mapper)
@@ -284,12 +291,10 @@ export default function ViewerScreen() {
 
     // Set total slices for the default axis
     const dims = imageData.getDimensions()
-    setTotalSlices(dims[2]) // axial = Z dimension by default
+    setTotalSlices(dims[2])
   }, [vtkReady, volumeData, setTotalSlices])
 
-  // Volume pipeline — creates mapper, volume actor, and shading properties.
-  // Only rebuilds when the underlying data or view mode changes (NOT on
-  // preset/multiplier tweaks), avoiding a costly 3D-texture re-upload.
+  // Volume pipeline
   useEffect(() => {
     if (!vtkReady || !vtkContextRef.current || !imageDataRef.current) return
     if (viewMode !== VIEW_MODES.VOLUME) return
@@ -362,9 +367,7 @@ export default function ViewerScreen() {
     }
   }, [vtkReady, volumeData, viewMode])
 
-  // Transfer function update — lightweight effect that only touches color/opacity
-  // control points.  Runs on preset or multiplier changes WITHOUT recreating the
-  // heavy mapper, 3D texture, or volume actor.
+  // Transfer function
   useEffect(() => {
     if (!ctfRef.current || !ofRef.current || !imageDataRef.current) return
     if (viewMode !== VIEW_MODES.VOLUME) return
@@ -636,12 +639,6 @@ export default function ViewerScreen() {
     const allActors = [...(volumes || []), ...(actors || []), ...segActors]
     const isOddFlip = isFlippedH !== isFlippedV
 
-    // When an odd number of axes are negatively scaled the triangle winding
-    // reverses.  vtk.js's two-sided lighting path negates the fragment normal
-    // for back-facing triangles, but the normal matrix already accounts for
-    // the mirrored transform — the double negation produces an incorrect
-    // normal and the surface goes black.  Disabling two-sided lighting when
-    // an odd flip is active avoids the double negation.
     renderer.setTwoSidedLighting(!isOddFlip)
 
     for (const actor of allActors) {

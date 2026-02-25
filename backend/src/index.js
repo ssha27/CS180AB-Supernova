@@ -1,5 +1,6 @@
 import express from 'express'
 import cors from 'cors'
+import compression from 'compression'
 import { uploadRouter } from './routes/upload.js'
 import { jobsRouter } from './routes/jobs.js'
 
@@ -7,6 +8,7 @@ const app = express()
 const PORT = process.env.PORT || 4000
 
 app.use(cors())
+app.use(compression())   // gzip/deflate all compressible responses
 app.use(express.json())
 
 // Health check

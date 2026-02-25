@@ -3,6 +3,7 @@ import { useAppStore, UPLOAD_STATES } from './store/appStore'
 import UploadScreen from './components/UploadScreen'
 import ViewerScreen from './components/ViewerScreen'
 import Toolbar from './components/Toolbar'
+import OrganSidebar from './components/OrganSidebar'
 import FallbackPopup from './components/FallbackPopup'
 import './App.css'
 
@@ -16,6 +17,7 @@ function App() {
   return (
     <div className="app">
       <Toolbar />
+      <OrganSidebar />
 
       <main className="app-main">
         {isViewing ? <ViewerScreen /> : <UploadScreen />}

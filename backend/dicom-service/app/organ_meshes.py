@@ -168,7 +168,7 @@ def generate_organ_meshes(
             image_data.SetSpacing(spacing[0], spacing[1], spacing[2])
             image_data.SetOrigin(origin[0], origin[1], origin[2])
 
-            flat = mask.flatten(order="C")
+            flat = mask.ravel(order="C")
             vtk_array = numpy_to_vtk(flat, deep=True, array_type=vtk.VTK_FLOAT)
             vtk_array.SetName("Scalars")
             image_data.GetPointData().SetScalars(vtk_array)

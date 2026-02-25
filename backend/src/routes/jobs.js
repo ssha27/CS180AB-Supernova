@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { getJob } from '../services/dicomProxy.js'
 import path from 'path'
 import fs from 'fs'
+import { promises as fsp } from 'fs'
 
 const router = Router()
 
@@ -72,7 +73,7 @@ router.get('/jobs/:jobId/volume-info', async (req, res) => {
     if (!fs.existsSync(infoPath)) {
       return res.status(404).json({ error: 'Volume info not found.' })
     }
-    const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'))
+    const info = JSON.parse(await fsp.readFile(infoPath, 'utf-8'))
     res.json(info)
   } catch (err) {
     console.error('Failed to fetch volume info:', err)
@@ -90,7 +91,7 @@ router.get('/jobs/:jobId/metadata', async (req, res) => {
     if (!fs.existsSync(metaPath)) {
       return res.status(404).json({ error: 'Metadata not found.' })
     }
-    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+    const meta = JSON.parse(await fsp.readFile(metaPath, 'utf-8'))
     res.json(meta)
   } catch (err) {
     console.error('Failed to fetch metadata:', err)
@@ -108,7 +109,7 @@ router.get('/jobs/:jobId/segments', async (req, res) => {
     if (!fs.existsSync(manifestPath)) {
       return res.status(404).json({ error: 'No segment data available.' })
     }
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+    const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf-8'))
     res.json(manifest)
   } catch (err) {
     console.error('Failed to fetch segment manifest:', err)

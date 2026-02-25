@@ -1,7 +1,7 @@
-# Skills / agent config
+# Skills
 .skills
 
-# Spec doc (local only)
+# Spec docs
 documentation/specification-document.md
 USAGE.md
 WORKFLOW.md
@@ -24,6 +24,7 @@ frontend/dist/
 # Uploads (runtime data)
 backend/uploads/
 test
+test_files
 
 # OS
 .DS_Store

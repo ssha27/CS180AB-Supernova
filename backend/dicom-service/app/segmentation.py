@@ -16,6 +16,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 _DEVICE_ENV = os.environ.get("TOTALSEG_DEVICE", "auto")
+_FAST_MODE = os.environ.get("TOTALSEG_FAST", "true").lower() in ("1", "true", "yes")
 
 
 def _resolve_device() -> str:
@@ -47,7 +48,7 @@ def _volume_to_nifti_path(
 
     Returns the path to the temporary .nii.gz file.
     """
-    data = np.transpose(volume, (2, 1, 0)).astype(np.float32)
+    data = np.ascontiguousarray(np.transpose(volume, (2, 1, 0)), dtype=np.float32)
 
     affine = np.eye(4)
     affine[0, 0] = spacing[0]
@@ -96,7 +97,7 @@ def run_segmentation(
     os.makedirs(segments_dir, exist_ok=True)
 
     device = _resolve_device()
-    logger.info("TotalSegmentator device: %s", device)
+    logger.info("TotalSegmentator device: %s, fast: %s", device, _FAST_MODE)
 
     if on_progress:
         on_progress(5)
@@ -122,7 +123,7 @@ def run_segmentation(
                 input=nii_input,
                 output=nii_output,
                 device=device,
-                fast=False,
+                fast=_FAST_MODE,
                 ml=True,    
             )
         except RuntimeError as exc:
@@ -133,7 +134,7 @@ def run_segmentation(
                     input=nii_input,
                     output=nii_output,
                     device="cpu",
-                    fast=False,
+                    fast=_FAST_MODE,
                     ml=True,
                 )
             else:
@@ -149,8 +150,10 @@ def run_segmentation(
         # Transpose back to (Z, Y, X) to match our volume convention
         label_volume = np.transpose(seg_data, (2, 1, 0))
 
-    # Get unique labels
-    unique_labels = [int(l) for l in np.unique(label_volume) if l != 0]
+    # Get unique labels and precompute voxel counts in a single O(N) pass
+    # instead of scanning the full volume per structure (O(N×S))
+    label_counts = np.bincount(label_volume.ravel().astype(np.intp))
+    unique_labels = [int(l) for l in range(1, len(label_counts)) if label_counts[l] > 0]
 
     if not unique_labels:
         logger.info("TotalSegmentator found no structures in this scan.")
@@ -168,7 +171,8 @@ def run_segmentation(
 
     regions = detect_scan_region(volume, spacing)
     structures = filter_structures(
-        raw_structures, label_volume, spacing, regions
+        raw_structures, label_volume, spacing, regions,
+        precomputed_counts=label_counts,
     )
 
     # Save the label volume as a compressed numpy file for mesh generation

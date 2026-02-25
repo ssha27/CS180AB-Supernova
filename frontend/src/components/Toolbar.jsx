@@ -24,14 +24,6 @@ export default function Toolbar() {
     setOpacityPreset,
     opacityMultiplier,
     setOpacityMultiplier,
-    segmentsAvailable,
-    segmentManifest,
-    activeSegments,
-    segmentLoadingSet,
-    toggleSegment,
-    showOnlySegment,
-    showAllSegments,
-    clearSegments,
   } = useAppStore()
 
   const toolbarRef = useRef(null)
@@ -253,60 +245,6 @@ export default function Toolbar() {
             )}
           </div>
 
-          {/* Detected Organs */}
-          {segmentsAvailable && segmentManifest.length > 0 && (
-            <div className="toolbar-group toolbar-group-organs">
-              <span className="toolbar-label">Detected Organs</span>
-              <div className="organ-actions">
-                <button
-                  className="toolbar-btn toolbar-btn-sm"
-                  onClick={showAllSegments}
-                  title="Show all detected organs"
-                >
-                  Show All
-                </button>
-                <button
-                  className="toolbar-btn toolbar-btn-sm"
-                  onClick={clearSegments}
-                  title="Hide all organ meshes"
-                >
-                  Hide All
-                </button>
-              </div>
-              <div className="organ-list">
-                {segmentManifest.map((seg) => (
-                  <div key={seg.name} className="organ-item">
-                    <span
-                      className="organ-color-dot"
-                      style={{
-                        backgroundColor: `rgb(${Math.round(seg.color[0] * 255)}, ${Math.round(seg.color[1] * 255)}, ${Math.round(seg.color[2] * 255)})`,
-                      }}
-                    />
-                    <label className="organ-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={activeSegments.has(seg.name)}
-                        onChange={() => toggleSegment(seg.name)}
-                      />
-                      <span
-                        className="organ-name"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          showOnlySegment(seg.name)
-                        }}
-                        title={`Show only ${seg.displayName}`}
-                      >
-                        {seg.displayName}
-                      </span>
-                    </label>
-                    {segmentLoadingSet.has(seg.name) && (
-                      <span className="organ-loading">⏳</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
 

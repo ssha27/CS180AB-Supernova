@@ -315,19 +315,29 @@ def filter_structures(
     label_volume: np.ndarray,
     spacing: list[float],
     regions: list[str],
+    precomputed_counts: Optional[np.ndarray] = None,
 ) -> dict[str, int]:
     """
     Apply all four filtering layers to the raw structure dict.
 
     Returns the filtered dict containing only high-confidence structures.
+
+    Parameters
+    ----------
+    precomputed_counts : np.ndarray, optional
+        Result of ``np.bincount(label_volume.ravel())`` — avoids
+        per-structure full-volume scans (O(N) instead of O(N×S)).
     """
     plausible = get_plausible_structures(regions)
     filtered = {}
     rejected_reasons: dict[str, str] = {}
 
     for name, label_val in structures.items():
-        # Count raw voxels
-        voxel_count = int((label_volume == label_val).sum())
+        # Count raw voxels — use precomputed if available
+        if precomputed_counts is not None and label_val < len(precomputed_counts):
+            voxel_count = int(precomputed_counts[label_val])
+        else:
+            voxel_count = int((label_volume == label_val).sum())
 
         # A. Global voxel threshold
         if voxel_count < MIN_VOXEL_COUNT:

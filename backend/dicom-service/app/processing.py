@@ -162,12 +162,15 @@ def _load_dicom_files(input_dir: str) -> list:
         for fname in files:
             fpath = os.path.join(root, fname)
             # Skip non-DICOM artifacts
-            if fname.endswith((".json", ".bin", ".vtp")):
+            if fname.endswith((".json", ".bin", ".vtp", ".npz", ".nii", ".nii.gz")):
                 continue
             try:
                 ds = pydicom.dcmread(fpath, force=True)
-                # Must have pixel data to be useful
-                if hasattr(ds, "pixel_array"):
+                # Check for PixelData tag without forcing decompression.
+                # hasattr(ds, "pixel_array") would decompress compressed
+                # DICOM (e.g. JPEG2000) just to check existence — extremely
+                # slow for hundreds of files.
+                if "PixelData" in ds:
                     datasets.append(ds)
             except Exception:
                 continue  # Skip files that aren't valid DICOM
@@ -275,9 +278,9 @@ def _save_volume_data(output_dir: str, volume: np.ndarray, spacing: list, origin
 
     _save_json(os.path.join(output_dir, "volume_info.json"), volume_info)
 
-    # Save raw binary
+    # Save raw binary — volume is already float32 from _stack_slices
     volume_path = os.path.join(output_dir, "volume.bin")
-    volume.astype(np.float32).tofile(volume_path)
+    volume.tofile(volume_path)
 
 
 def _save_surface_mesh(output_dir: str, volume: np.ndarray, spacing: list, origin: list) -> None:
@@ -295,8 +298,8 @@ def _save_surface_mesh(output_dir: str, volume: np.ndarray, spacing: list, origi
     image_data.SetSpacing(spacing[0], spacing[1], spacing[2])
     image_data.SetOrigin(origin[0], origin[1], origin[2])
 
-    # Flatten volume in Fortran order for VTK (X varies fastest)
-    flat = volume.flatten(order="C")
+    # Use ravel() for a zero-copy view when possible (C-contiguous arrays)
+    flat = volume.ravel(order="C")
     vtk_array = numpy_to_vtk(flat, deep=True, array_type=vtk.VTK_FLOAT)
     vtk_array.SetName("Scalars")
     image_data.GetPointData().SetScalars(vtk_array)

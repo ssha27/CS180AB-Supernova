@@ -1,0 +1,207 @@
+/* ─── Organ Sidebar ─────────────────────────────────────────────────*/
+
+.organ-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 260px;
+  z-index: 99;
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 20, 24, 0.92);
+  backdrop-filter: blur(16px);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.organ-sidebar.collapsed {
+  transform: translateX(100%);
+}
+
+/* ─── Toggle Tab ───────────────────────────────────────────────────*/
+.sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-100%, -50%);
+  width: 22px;
+  height: 72px;
+  background: rgba(20, 20, 24, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.2s;
+}
+
+.sidebar-toggle:hover {
+  background: rgba(30, 30, 36, 0.95);
+  color: rgba(255, 255, 255, 0.8);
+  width: 26px;
+}
+
+.sidebar-toggle-icon {
+  font-size: 1rem;
+  line-height: 1;
+  font-weight: 600;
+}
+
+/* ─── Content Area ─────────────────────────────────────────────────── */
+.sidebar-content {
+  padding: 1rem 1rem 1rem 1rem;
+  padding-top: 5rem; /* Clear the toolbar */
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-title {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+.sidebar-count {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Actions ──────────────────────────────────────────────────────── */
+.sidebar-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.sidebar-btn {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.sidebar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+/* ─── Organ List ───────────────────────────────────────────────────── */
+.sidebar-organ-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+  padding-right: 0.25rem;
+}
+
+.sidebar-organ-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-organ-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 2px;
+}
+
+.sidebar-organ-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+.sidebar-organ-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ─── Organ Item ───────────────────────────────────────────────────── */
+.sidebar-organ-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.35rem;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
+
+.sidebar-organ-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-organ-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.4);
+}
+
+.sidebar-organ-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-organ-checkbox input[type='checkbox'] {
+  accent-color: #646cff;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.sidebar-organ-name {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+
+.sidebar-organ-name:hover {
+  color: #646cff;
+  text-decoration: underline;
+}
+
+.sidebar-organ-loading {
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
