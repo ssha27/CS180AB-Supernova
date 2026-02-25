@@ -123,7 +123,7 @@ def run_segmentation(
                 input=nii_input,
                 output=nii_output,
                 device=device,
-                fast=_FAST_MODE,
+                fast=False,     # switch to _FAST_MODE for speed
                 ml=True,    
             )
         except RuntimeError as exc:
@@ -151,7 +151,6 @@ def run_segmentation(
         label_volume = np.transpose(seg_data, (2, 1, 0))
 
     # Get unique labels and precompute voxel counts in a single O(N) pass
-    # instead of scanning the full volume per structure (O(N×S))
     label_counts = np.bincount(label_volume.ravel().astype(np.intp))
     unique_labels = [int(l) for l in range(1, len(label_counts)) if label_counts[l] > 0]
 
