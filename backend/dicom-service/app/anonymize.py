@@ -26,7 +26,6 @@ PII_TAGS = [
     "AdditionalPatientHistory",
     "PregnancyStatus",
     "PatientComments",
-    # Referring physician / institution
     "ReferringPhysicianName",
     "ReferringPhysicianAddress",
     "ReferringPhysicianTelephoneNumbers",
@@ -39,14 +38,10 @@ PII_TAGS = [
     "NameOfPhysiciansReadingStudy",
     "PhysiciansOfRecord",
     "RequestingPhysician",
-    # Study / accession identifiers
     "AccessionNumber",
     "StudyID",
     "RequestedProcedureID",
     "ScheduledProcedureStepID",
-    # Instance UIDs (re-identify risk)
-    # Note: We keep SeriesInstanceUID and SOPInstanceUID for slice ordering,
-    # but strip study-level identifiers
 ]
 
 # Tags that we MUST keep for imaging
