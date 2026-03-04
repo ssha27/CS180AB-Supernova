@@ -2,7 +2,7 @@
 Ingestion orchestration:
 - ingest_path(file or folder)
 - decode pixel data (handles multi-frame vs series)
-- build safe metadata (NO PHI, NO raw UIDs)
+- build safe metadata 
 - output per series (hashed naming)
 """
 
@@ -79,7 +79,7 @@ def _ingest_single_file(input_path: Path, output_root: Path, cfg: PipelineConfig
     if not is_image_dicom(ds):
         raise ValueError("Input DICOM file does not contain image pixel data.")
 
-    # Multi-frame?
+    # Multi-frame
     nframes = getattr(ds, "NumberOfFrames", None)
     is_multiframe = False
     try:
@@ -168,7 +168,7 @@ def _ingest_folder(input_dir: Path, output_root: Path, cfg: PipelineConfig, salt
 
 def ingest_path(input_path: Path, output_root: Path, process_all_series: bool = False, user_salt: Optional[str] = None) -> None:
     """
-    Public entrypoint.
+    Public entrypoint
 
     input_path: file or folder
     output_root: where per-series folders are written

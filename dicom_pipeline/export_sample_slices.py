@@ -10,7 +10,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="out", help="Output root containing series_* folders")
     ap.add_argument("--series", default=None, help="Specific series folder (e.g., out/series_xxx). If omitted, picks first.")
-    ap.add_argument("--num", type=int, default=5, help="How many slices to export (evenly spaced)")
+    ap.add_argument("--num", type=int, default=5, help="How many slices to export")
     args = ap.parse_args()
 
     out_root = Path(args.out).expanduser().resolve()
@@ -49,3 +49,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Run: 
+# - python export_sample_slices.py --out out OR
+# - python export_sample_slices.py --series out/series_1dfa483228344e50 --num 7

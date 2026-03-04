@@ -33,3 +33,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Run:
+# export DICOM_DEID_SALT="super-secret-random-string"
+# python run_ingest.py \
+#   --input "<PATH HERE>" \
+#   --output out
+# 

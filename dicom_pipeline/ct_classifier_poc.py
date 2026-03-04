@@ -5,17 +5,17 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 
-# ---- Config ----
+# Config
 DATA_GLOB = "out/series_*/image.npy"  
 LABEL = 1  # pretend "cancer" for this one sample (placeholder)
 DEVICE = "cpu"
 
 
-# ---- Dataset ----
+# Dataset
 class SingleCTSliceDataset(Dataset):
     """
-    Loads (1, D, H, W) from image.npy.
-    For this PoC we take the middle slice and treat it as a 2D image (1, H, W).
+    Loads (1, D, H, W) from image.npy
+    For this, we take the middle slice and treat it as a 2D image (1, H, W)
     """
     def __init__(self, paths, label):
         self.paths = paths
@@ -34,7 +34,7 @@ class SingleCTSliceDataset(Dataset):
         return torch.from_numpy(x2d), torch.from_numpy(y)
 
 
-# ---- Simple 2D CNN ----
+# Basic 2D CNN
 class SmallCNN(nn.Module):
     def __init__(self):
         super().__init__()
@@ -82,10 +82,10 @@ def main():
         prob = torch.sigmoid(logits).item()
         print(f"step={step} loss={loss.item():.4f} prob={prob:.4f} x_shape={tuple(x.shape)}")
 
-        # For a PoC, one step is enough
+
         break
 
-    print("✅ End-to-end PoC worked (load -> model -> loss -> backward -> update).")
+    print("End-to-end worked (load -> model -> loss -> backward -> update)")
 
 
 if __name__ == "__main__":

@@ -18,13 +18,13 @@ for sd in series_dirs:
     x = np.load(npy_path)
 
     print("Series:", sd)
-    print("  Modality:", meta.get("Modality"))
-    print("  tensor_shape:", x.shape, "dtype:", x.dtype)
-    print("  NumSlicesDecoded:", meta.get("NumSlicesDecoded"),
+    print("Modality:", meta.get("Modality"))
+    print("tensor_shape:", x.shape, "dtype:", x.dtype)
+    print("NumSlicesDecoded:", meta.get("NumSlicesDecoded"),
           "NumSlicesInSeries:", meta.get("NumSlicesInSeries"),
           "DecodeErrors:", meta.get("DecodeErrors"))
-    print("  PixelSpacing_rc_mm:", meta.get("PixelSpacing_rc_mm"),
+    print("PixelSpacing_rc_mm:", meta.get("PixelSpacing_rc_mm"),
           "SliceSpacing_mm:", meta.get("SliceSpacing_mm"))
-    print("  value range:", float(x.min()), float(x.max()), "mean:", float(x.mean()))
-    print("  preview:", os.path.join(sd, "preview.png"))
+    print("value range:", float(x.min()), float(x.max()), "mean:", float(x.mean()))
+    print("preview:", os.path.join(sd, "preview.png"))
     print()

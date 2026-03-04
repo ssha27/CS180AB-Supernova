@@ -34,7 +34,7 @@ def save_series_outputs(out_dir: Path, tensor: np.ndarray, meta: Dict, deid_repo
     plt.savefig(out_dir / "preview.png", dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close()
 
-    # Add basic tensor stats (safe)
+    # Add basic tensor stats
     meta2 = dict(meta)
     meta2.update({
         "tensor_shape": list(tensor.shape),

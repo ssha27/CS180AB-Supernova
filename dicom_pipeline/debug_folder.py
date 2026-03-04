@@ -48,3 +48,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Run: python debug_folder.py --input "/path/to/dicom_folder"

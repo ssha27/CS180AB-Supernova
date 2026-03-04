@@ -14,8 +14,8 @@ from .config import PipelineConfig
 
 def photometric_invert_if_needed(arr: np.ndarray, ds) -> np.ndarray:
     """
-    MONOCHROME1 means: larger value -> darker in display.
-    Many pipelines invert to match MONOCHROME2.
+    MONOCHROME1 means: larger value -> darker in display.\
+    Many pipelines invert to match MONOCHROME2
     """
     pi = getattr(ds, "PhotometricInterpretation", None)
     if str(pi) == "MONOCHROME1":

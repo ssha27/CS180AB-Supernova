@@ -1,9 +1,9 @@
 """
-De-identification helpers.
+De-identification helpers
 
 Important behavior:
-- Never write values for sensitive tags to disk.
-- Never write raw DICOM UIDs to disk.
+- Never write values for sensitive tags to disk
+- Never write raw DICOM UIDs to disk
 """
 
 import hashlib
@@ -77,8 +77,8 @@ def stable_hash(value: str, salt: str, n_chars: int = 16) -> str:
 
 def scan_sensitive_fields(ds) -> Dict[str, bool]:
     """
-    Returns which sensitive/UID fields are present in the dataset.
-    NOTE: booleans only; we do not record values.
+    Returns which sensitive/UID fields are present in the dataset
+    NOTE: booleans only; do not record values
     """
     present = {}
     for k in SENSITIVE_TAGS + UID_TAGS:
@@ -88,7 +88,7 @@ def scan_sensitive_fields(ds) -> Dict[str, bool]:
 
 def hashed_uids(ds, salt: str) -> Dict[str, Optional[str]]:
     """
-    Returns hashed forms of UID fields (no raw UIDs).
+    Returns hashed forms of UID fields 
     """
     out: Dict[str, Optional[str]] = {}
     for tag in UID_TAGS:

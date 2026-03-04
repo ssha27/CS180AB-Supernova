@@ -1,7 +1,5 @@
 """
-Central configuration for normalization + behavior.
-
-Keep defaults conservative and deterministic.
+Central configuration for normalization + behavior
 """
 
 from dataclasses import dataclass

@@ -79,7 +79,7 @@ def get_slice_spacing(ds) -> Optional[float]:
 def series_sort_key(ds):
     """
     Sort preference:
-    1) If ImagePositionPatient exists, use its z-component (baseline proxy)
+    1) If ImagePositionPatient exists, use its z-component (baseline)
     2) Fallback to InstanceNumber
     """
     inst = getattr(ds, "InstanceNumber", None)
