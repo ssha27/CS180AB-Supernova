@@ -17,14 +17,6 @@ Install the following tools:
 * Docker Compose
 * Python 3.10+
 
-Verify installation:
-
-```bash
-docker --version
-docker compose version
-python3 --version
-```
-
 ---
 
 # Quick Start
@@ -38,21 +30,6 @@ docker compose up -d
 ```
 
 This will start the PostgreSQL and MongoDB containers.
-
----
-
-## 2. Confirm containers are running
-
-```bash
-docker compose ps
-```
-
-You should see containers for:
-
-* `postgres`
-* `mongo`
-
-with a **running** status.
 
 ---
 
@@ -110,12 +87,6 @@ pip install -r requirements.txt
 ## 6. Run the ingestion script
 
 Example:
-
-```bash
-python ingest.py --help
-```
-
-Typical usage might look like:
 
 ```bash
 python ingest.py --input ./dicom_files
@@ -185,7 +156,6 @@ Each chunk contains:
 * binary data
 
 The PostgreSQL table stores the `mongo_file_id`, which links metadata to the corresponding GridFS file.
-
 
 ---
 
