@@ -10,6 +10,8 @@ A DICOM viewer with a React frontend, Node.js API gateway, and Python DICOM proc
 
 ## Getting Started
 
+First, navigate to the `website/worktrees/supernova` directory. All commands below should be run from there.
+
 ### 1. Start the databases
 
 ```bash
@@ -42,4 +44,4 @@ npm install
 npm run dev
 ```
 
-The frontend will be available at http://localhost:5173.
+The frontend will be available at http://localhost:3000/.
