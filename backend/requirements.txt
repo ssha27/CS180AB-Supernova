@@ -1,0 +1,23 @@
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.6
+python-multipart>=0.0.9
+websockets>=12.0
+
+# Medical imaging & segmentation
+TotalSegmentator>=2.13.0
+nibabel>=5.2.1
+pydicom>=2.4.4
+
+# Mesh processing
+scikit-image>=0.24.0
+trimesh>=4.4.9
+fast-simplification>=0.1.7
+
+# Data & utilities
+numpy>=2.0.0
+scipy>=1.17.0
+psutil>=6.0.0
+
+# Type checking
+pydantic>=2.9.2

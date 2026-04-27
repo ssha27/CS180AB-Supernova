@@ -1,0 +1,17 @@
+services:
+  supernova:
+    build: .
+    ports:
+      - "8000:8000"
+    shm_size: '2g'
+    environment:
+      - SUPERNOVA_STATIC_DIR=/app/frontend/dist
+    volumes:
+      - supernova-data:/tmp/supernova
+    deploy:
+      resources:
+        limits:
+          memory: 16g
+
+volumes:
+  supernova-data:

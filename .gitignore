@@ -1,0 +1,5 @@
+test_files
+**/node_modules
+**/dist
+**/.pytest_cache
+**/venv
