@@ -1,11 +1,4 @@
-"""
-Ingestion orchestration:
-- ingest_path(file or folder)
-- decode pixel data (handles multi-frame vs series)
-- build safe metadata 
-- output per series (hashed naming)
-"""
-
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -36,7 +29,6 @@ def _build_safe_meta(ds, salt: str, num_slices_decoded: int, num_slices_total: i
     iop = getattr(ds, "ImageOrientationPatient", None)
     ipp0 = getattr(ds, "ImagePositionPatient", None)
 
-    # Safe meta only: no PatientName/PatientID/etc; no raw UIDs.
     meta = {
         "Modality": modality,
         "TransferSyntaxUID": get_transfer_syntax(ds),
@@ -69,12 +61,33 @@ def _build_deid_report(ds, meta: Dict) -> Dict:
 
 
 def _to_tensor(vol_raw: np.ndarray, modality: Optional[str], cfg: PipelineConfig) -> np.ndarray:
-    # vol_raw: (D,H,W) -> tensor: (1,D,H,W)
     vol_norm = normalize_for_ml(vol_raw, modality, cfg)
     return vol_norm[None, ...].astype(np.float32)
 
 
-def _ingest_single_file(input_path: Path, output_root: Path, cfg: PipelineConfig, salt: str) -> None:
+def _series_record(out_dir: Path, meta: Dict) -> Dict:
+    return {
+        "series_id": out_dir.name,
+        "image_path": str((out_dir / "image.npy").resolve()),
+        "meta_path": str((out_dir / "meta.json").resolve()),
+        "preview_path": str((out_dir / "preview.png").resolve()),
+        "modality": meta.get("Modality"),
+        "num_slices_decoded": meta.get("NumSlicesDecoded"),
+        "rows": meta.get("Rows"),
+        "columns": meta.get("Columns"),
+    }
+
+
+def _write_manifest(output_root: Path, records: List[Dict]) -> None:
+    output_root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "note": "Model-ready index of de-identified ingested DICOM series. Add labels later using series_id,label CSV.",
+        "series": records,
+    }
+    (output_root / "manifest.json").write_text(json.dumps(payload, indent=2))
+
+
+def _ingest_single_file(input_path: Path, output_root: Path, cfg: PipelineConfig, salt: str) -> Dict:
     ds = read_ds(input_path, stop_before_pixels=False)
     if not is_image_dicom(ds):
         raise ValueError("Input DICOM file does not contain image pixel data.")
@@ -92,9 +105,9 @@ def _ingest_single_file(input_path: Path, output_root: Path, cfg: PipelineConfig
     arr, _ = apply_rescale(arr, ds)
 
     if arr.ndim == 2:
-        vol = arr[None, ...]  # (1,H,W)
+        vol = arr[None, ...]
     elif arr.ndim == 3:
-        vol = arr  # (D,H,W) typical for multi-frame
+        vol = arr
     else:
         raise ValueError(f"Unsupported pixel_array shape: {arr.shape}")
 
@@ -102,16 +115,16 @@ def _ingest_single_file(input_path: Path, output_root: Path, cfg: PipelineConfig
     meta["MultiFrame"] = bool(is_multiframe)
     deid_report = _build_deid_report(ds, meta)
 
-    # Output directory name uses hashed UID only
     key_src = str(getattr(ds, "SeriesInstanceUID", None) or getattr(ds, "SOPInstanceUID", "UNKNOWN"))
     series_key = stable_hash(key_src, salt)
     out_dir = output_root / f"series_{series_key}"
 
     tensor = _to_tensor(vol, meta.get("Modality"), cfg)
     save_series_outputs(out_dir, tensor, meta, deid_report)
+    return _series_record(out_dir, meta)
 
 
-def _ingest_folder(input_dir: Path, output_root: Path, cfg: PipelineConfig, salt: str, process_all_series: bool) -> None:
+def _ingest_folder(input_dir: Path, output_root: Path, cfg: PipelineConfig, salt: str, process_all_series: bool) -> List[Dict]:
     paths = discover_image_dicoms_in_folder(input_dir)
     if not paths:
         raise FileNotFoundError("No image DICOMs found in folder.")
@@ -119,6 +132,7 @@ def _ingest_folder(input_dir: Path, output_root: Path, cfg: PipelineConfig, salt
     series_groups = group_by_series_uid(paths)
     series_uids = sorted(series_groups.keys(), key=lambda uid: len(series_groups[uid]), reverse=True)
     selected = series_uids if process_all_series else [series_uids[0]]
+    records: List[Dict] = []
 
     for raw_uid in selected:
         slice_paths = series_groups[raw_uid]
@@ -164,15 +178,12 @@ def _ingest_folder(input_dir: Path, output_root: Path, cfg: PipelineConfig, salt
 
         tensor = _to_tensor(vol, meta.get("Modality"), cfg)
         save_series_outputs(out_dir, tensor, meta, deid_report)
+        records.append(_series_record(out_dir, meta))
+
+    return records
 
 
-def ingest_path(input_path: Path, output_root: Path, process_all_series: bool = False, user_salt: Optional[str] = None) -> None:
-    """
-    Public entrypoint
-
-    input_path: file or folder
-    output_root: where per-series folders are written
-    """
+def ingest_path(input_path: Path, output_root: Path, process_all_series: bool = False, user_salt: Optional[str] = None) -> List[Dict]:
     cfg = PipelineConfig()
     salt = get_salt(user_salt)
 
@@ -180,8 +191,11 @@ def ingest_path(input_path: Path, output_root: Path, process_all_series: bool = 
     output_root = output_root.expanduser().resolve()
 
     if input_path.is_file():
-        _ingest_single_file(input_path, output_root, cfg, salt)
+        records = [_ingest_single_file(input_path, output_root, cfg, salt)]
     elif input_path.is_dir():
-        _ingest_folder(input_path, output_root, cfg, salt, process_all_series=process_all_series)
+        records = _ingest_folder(input_path, output_root, cfg, salt, process_all_series=process_all_series)
     else:
         raise FileNotFoundError(f"Input path not found: {input_path}")
+
+    _write_manifest(output_root, records)
+    return records

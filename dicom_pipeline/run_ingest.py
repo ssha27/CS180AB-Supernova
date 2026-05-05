@@ -21,14 +21,14 @@ def main():
     ap.add_argument("--salt", default=None, help="Salt for hashing (or set env DICOM_DEID_SALT)")
     args = ap.parse_args()
 
-    ingest_path(
+    records = ingest_path(
         input_path=Path(args.input),
         output_root=Path(args.output),
         process_all_series=args.all_series,
         user_salt=args.salt,
     )
 
-    print("Done.")
+    print(f"Done. Wrote {len(records)} series and manifest.json to {Path(args.output).resolve()}")
 
 
 if __name__ == "__main__":
@@ -39,4 +39,3 @@ if __name__ == "__main__":
 # python run_ingest.py \
 #   --input "<PATH HERE>" \
 #   --output out
-# 
