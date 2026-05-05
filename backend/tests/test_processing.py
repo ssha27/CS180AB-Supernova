@@ -14,6 +14,7 @@ from app.processing import (
     extract_zip,
     create_job,
     get_job,
+    get_output_base,
     get_job_output_dir,
     run_pipeline,
     _pipeline_lock,
@@ -123,6 +124,15 @@ class TestJobManagement:
         job_id = create_job(SegmentationQuality.FAST, VolumeQuality.STANDARD)
         output_dir = get_job_output_dir(job_id)
         assert job_id in output_dir
+
+    def test_output_base_uses_env_override(self, monkeypatch):
+        monkeypatch.setenv("SUPERNOVA_OUTPUT_DIR", "/srv/supernova-data")
+
+        assert get_output_base() == "/srv/supernova-data"
+        assert get_job_output_dir("job-123") == os.path.join(
+            "/srv/supernova-data",
+            "job-123",
+        )
 
     def test_job_initial_progress(self):
         job_id = create_job(SegmentationQuality.FULL, VolumeQuality.HIGH)

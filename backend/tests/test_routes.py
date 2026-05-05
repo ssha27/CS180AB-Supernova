@@ -306,6 +306,17 @@ class TestMemoryCheckEndpoint:
         assert "required_gb" in data
 
 
+class TestHealthEndpoint:
+    @pytest.mark.asyncio
+    async def test_health_check(self, cleanup_jobs):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/health")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+
 class TestRecentUploadsEndpoint:
     @pytest.mark.asyncio
     async def test_recent_uploads_returns_latest_five(self, cleanup_jobs):

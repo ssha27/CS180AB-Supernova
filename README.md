@@ -21,6 +21,8 @@ docker compose up --build
 
 Open [http://localhost:8000](http://localhost:8000) in your browser.
 
+For an EC2-oriented deployment path, use [AWS_EC2_CHECKLIST.md](AWS_EC2_CHECKLIST.md) together with [docker-compose.ec2.yml](docker-compose.ec2.yml).
+
 ## Local Development
 
 ### Prerequisites

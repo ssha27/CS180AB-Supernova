@@ -32,6 +32,7 @@ _jobs: dict[str, "JobState"] = {}
 _pipeline_lock = asyncio.Lock()
 
 # Base directory for processing outputs
+OUTPUT_BASE_ENV_VAR = "SUPERNOVA_OUTPUT_DIR"
 OUTPUT_BASE = os.path.join(tempfile.gettempdir(), "supernova_jobs")
 RECENT_UPLOADS_PATH = os.path.join(OUTPUT_BASE, "recent_uploads.json")
 RECENT_UPLOAD_LIMIT = 5
@@ -55,12 +56,24 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def get_output_base() -> str:
+    return os.environ.get(OUTPUT_BASE_ENV_VAR, OUTPUT_BASE)
+
+
+def get_recent_uploads_path() -> str:
+    configured_output_base = os.environ.get(OUTPUT_BASE_ENV_VAR)
+    if configured_output_base:
+        return os.path.join(configured_output_base, "recent_uploads.json")
+    return RECENT_UPLOADS_PATH
+
+
 def _load_recent_uploads() -> list[dict[str, object]]:
-    if not os.path.exists(RECENT_UPLOADS_PATH):
+    recent_uploads_path = get_recent_uploads_path()
+    if not os.path.exists(recent_uploads_path):
         return []
 
     try:
-        with open(RECENT_UPLOADS_PATH, encoding="utf-8") as handle:
+        with open(recent_uploads_path, encoding="utf-8") as handle:
             payload = json.load(handle)
     except (OSError, json.JSONDecodeError):
         logger.warning("Failed to read recent upload catalog", exc_info=True)
@@ -70,13 +83,15 @@ def _load_recent_uploads() -> list[dict[str, object]]:
 
 
 def _save_recent_uploads(entries: list[dict[str, object]]) -> None:
-    os.makedirs(OUTPUT_BASE, exist_ok=True)
-    temp_path = os.path.join(OUTPUT_BASE, f".recent_uploads.{uuid.uuid4().hex}.tmp")
+    output_base = get_output_base()
+    recent_uploads_path = get_recent_uploads_path()
+    os.makedirs(output_base, exist_ok=True)
+    temp_path = os.path.join(output_base, f".recent_uploads.{uuid.uuid4().hex}.tmp")
 
     with open(temp_path, "w", encoding="utf-8") as handle:
         json.dump(entries, handle)
 
-    os.replace(temp_path, RECENT_UPLOADS_PATH)
+    os.replace(temp_path, recent_uploads_path)
 
 
 def _sort_recent_uploads(entries: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -223,7 +238,7 @@ def get_job(job_id: str) -> JobState | None:
 
 def get_job_output_dir(job_id: str) -> str:
     """Return the output directory path for a job."""
-    return os.path.join(OUTPUT_BASE, job_id)
+    return os.path.join(get_output_base(), job_id)
 
 
 def validate_zip_contains_dicom(zip_path: str) -> tuple[bool, str]:

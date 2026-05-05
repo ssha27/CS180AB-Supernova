@@ -34,6 +34,12 @@ router = APIRouter()
 MAX_UPLOAD_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
 
 
+@router.get("/api/health")
+async def health_check():
+    """Simple health endpoint for container and load balancer checks."""
+    return {"status": "ok"}
+
+
 @router.post("/api/upload")
 async def upload_dicom(
     file: UploadFile = File(...),

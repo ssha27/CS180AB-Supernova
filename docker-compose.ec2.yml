@@ -1,0 +1,15 @@
+services:
+  supernova:
+    build:
+      context: .
+    container_name: supernova
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${SUPERNOVA_HOST_PORT:-80}:8000"
+    shm_size: '2g'
+    environment:
+      SUPERNOVA_STATIC_DIR: /app/frontend/dist
+      SUPERNOVA_OUTPUT_DIR: /data/supernova
+    volumes:
+      - ${SUPERNOVA_HOST_DATA_DIR:-/srv/supernova-data}:/data/supernova
