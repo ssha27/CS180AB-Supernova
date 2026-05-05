@@ -298,7 +298,7 @@ export default function ViewerScreen() {
           width: '100%',
           position: 'absolute',
         },
-        background: [0.1, 0.1, 0.12],
+        background: [0.039, 0.055, 0.078],
       })
 
       const renderer = fullScreenRenderer.getRenderer()
@@ -854,11 +854,29 @@ export default function ViewerScreen() {
     <div className="viewer-screen">
       <div ref={containerRef} className="vtk-container" />
       {showOverlay && (
-        <div className="viewer-message">
-          {loadError
-            ? <p>Error: {loadError}</p>
-            : <p>Processing DICOM data...</p>
-          }
+        <div className="viewer-overlay">
+          <div className="viewer-overlay-card">
+            {loadError ? (
+              <>
+                <div className="viewer-overlay-icon error">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 8v4M12 16h.01" />
+                  </svg>
+                </div>
+                <h3 className="viewer-overlay-title">Failed to load study</h3>
+                <p className="viewer-overlay-text">{loadError}</p>
+              </>
+            ) : (
+              <>
+                <div className="viewer-overlay-loader" />
+                <h3 className="viewer-overlay-title">Processing DICOM data</h3>
+                <p className="viewer-overlay-text">
+                  Reconstructing 3D volume and surface mesh. This can take a moment.
+                </p>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

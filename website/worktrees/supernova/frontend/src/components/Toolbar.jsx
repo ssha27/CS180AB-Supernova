@@ -56,7 +56,7 @@ export default function Toolbar() {
         if (h > maxH) maxH = h
       }
       // Add toolbar padding (top + bottom ~1.2rem ≈ ~20px) + border
-      setMinToolbarHeight(Math.ceil(maxH + 22))
+      setMinToolbarHeight(Math.ceil(maxH + 24))
     }
 
     measure()
@@ -102,7 +102,7 @@ export default function Toolbar() {
   const handleBack = useCallback(() => {
     reset()
     // Full page reload to cleanly tear down VTK.js WebGL context
-    window.location.href = '/'
+    window.location.href = '/browse'
   }, [reset])
 
   const toolbarStyle = toolbarHeight != null
@@ -111,10 +111,25 @@ export default function Toolbar() {
 
   return (
     <div className="toolbar" ref={toolbarRef} style={toolbarStyle}>
-      <div className="toolbar-group">
-        <button className="toolbar-btn" onClick={handleBack} title="Back to Browse">
-          ← Back
+      <div className="toolbar-group toolbar-group-brand">
+        <button className="toolbar-back" onClick={handleBack} title="Back to Browse">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
+          Back
         </button>
+        <div className="toolbar-divider" />
+        <div className="toolbar-brand">
+          <div className="toolbar-brand-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 3v18M3 12h18" />
+              <circle cx="12" cy="12" r="3" fill="currentColor" />
+            </svg>
+          </div>
+          <span className="toolbar-brand-text">3D Viewer</span>
+        </div>
       </div>
 
       {!is2DFallback && (
@@ -122,29 +137,39 @@ export default function Toolbar() {
           {/* View mode toggle */}
           <div className="toolbar-group">
             <span className="toolbar-label">Mode</span>
-            <button
-              className={`toolbar-btn ${viewMode === VIEW_MODES.VOLUME ? 'active' : ''}`}
-              onClick={() => setViewMode(VIEW_MODES.VOLUME)}
-            >
-              Volume
-            </button>
-            <button
-              className={`toolbar-btn ${viewMode === VIEW_MODES.SURFACE ? 'active' : ''}`}
-              onClick={() => setViewMode(VIEW_MODES.SURFACE)}
-            >
-              Surface
-            </button>
+            <div className="segmented">
+              <button
+                className={`segmented-btn ${viewMode === VIEW_MODES.VOLUME ? 'active' : ''}`}
+                onClick={() => setViewMode(VIEW_MODES.VOLUME)}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+                  <path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />
+                </svg>
+                Volume
+              </button>
+              <button
+                className={`segmented-btn ${viewMode === VIEW_MODES.SURFACE ? 'active' : ''}`}
+                onClick={() => setViewMode(VIEW_MODES.SURFACE)}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12c0-2 4-4 9-4s9 2 9 4M3 12c0 2 4 4 9 4s9-2 9-4" />
+                </svg>
+                Surface
+              </button>
+            </div>
           </div>
 
           {/* Opacity controls (only for volume mode) */}
           {viewMode === VIEW_MODES.VOLUME && (
             <div className="toolbar-group toolbar-group-opacity">
-              <span className="toolbar-label">Opacity Preset</span>
+              <span className="toolbar-label">Tissue Preset</span>
               <div className="preset-buttons">
                 {Object.values(OPACITY_PRESETS).map((preset) => (
                   <button
                     key={preset}
-                    className={`toolbar-btn toolbar-btn-sm ${opacityPreset === preset ? 'active' : ''}`}
+                    className={`chip ${opacityPreset === preset ? 'active' : ''}`}
                     onClick={() => setOpacityPreset(preset)}
                   >
                     {preset.charAt(0).toUpperCase() + preset.slice(1)}
@@ -153,7 +178,7 @@ export default function Toolbar() {
               </div>
               <div className="opacity-slider-row">
                 <span className="toolbar-label-sm">
-                  Opacity {Math.round(opacityMultiplier * 100)}%
+                  Opacity <strong>{Math.round(opacityMultiplier * 100)}%</strong>
                 </span>
                 <input
                   type="range"
@@ -164,7 +189,7 @@ export default function Toolbar() {
                   onChange={(e) =>
                     setOpacityMultiplier(parseInt(e.target.value, 10) / 100)
                   }
-                  className="opacity-slider"
+                  className="range-slider"
                 />
               </div>
             </div>
@@ -173,20 +198,28 @@ export default function Toolbar() {
           {/* Flip controls */}
           <div className="toolbar-group">
             <span className="toolbar-label">Flip</span>
-            <button
-              className={`toolbar-btn ${isFlippedH ? 'active' : ''}`}
-              onClick={toggleFlipH}
-              title="Flip Horizontal"
-            >
-              ↔ H
-            </button>
-            <button
-              className={`toolbar-btn ${isFlippedV ? 'active' : ''}`}
-              onClick={toggleFlipV}
-              title="Flip Vertical"
-            >
-              ↕ V
-            </button>
+            <div className="segmented">
+              <button
+                className={`segmented-btn ${isFlippedH ? 'active' : ''}`}
+                onClick={toggleFlipH}
+                title="Flip Horizontal"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3v18M22 12l-5-5v3h-5v4h5v3l5-5zM2 12l5 5v-3h5v-4H7V7l-5 5z" />
+                </svg>
+                H
+              </button>
+              <button
+                className={`segmented-btn ${isFlippedV ? 'active' : ''}`}
+                onClick={toggleFlipV}
+                title="Flip Vertical"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12h18M12 22l5-5h-3v-5h-4v5H7l5 5zM12 2L7 7h3v5h4V7h3l-5-5z" />
+                </svg>
+                V
+              </button>
+            </div>
           </div>
 
           {/* Clipping plane controls */}
@@ -203,7 +236,7 @@ export default function Toolbar() {
                       setClipPlane(plane, { enabled: e.target.checked })
                     }
                   />
-                  {plane.charAt(0).toUpperCase() + plane.slice(1)}
+                  <span>{plane.charAt(0).toUpperCase() + plane.slice(1)}</span>
                 </label>
                 {clipPlanes[plane].enabled && (
                   <input
@@ -215,7 +248,7 @@ export default function Toolbar() {
                     onChange={(e) =>
                       setClipPlane(plane, { value: parseFloat(e.target.value) })
                     }
-                    className="clip-slider"
+                    className="range-slider compact"
                   />
                 )}
               </div>
@@ -226,7 +259,7 @@ export default function Toolbar() {
           <div className="toolbar-group toolbar-group-slice">
             <span className="toolbar-label">Slice View</span>
             <select
-              className="slice-axis-select"
+              className="select-input"
               value={sliceAxis}
               onChange={(e) => setSliceAxis(e.target.value)}
             >
@@ -239,7 +272,7 @@ export default function Toolbar() {
             {totalSlices > 1 && (
               <>
                 <span className="toolbar-label-sm">
-                  {currentSliceIndex + 1}/{totalSlices}
+                  <strong>{currentSliceIndex + 1}</strong>/{totalSlices}
                 </span>
                 <input
                   type="range"
@@ -250,7 +283,7 @@ export default function Toolbar() {
                   onChange={(e) =>
                     setCurrentSliceIndex(parseInt(e.target.value, 10))
                   }
-                  className="slice-slider"
+                  className="range-slider wide"
                 />
               </>
             )}
@@ -259,17 +292,20 @@ export default function Toolbar() {
           {/* Detected Organs */}
           {segmentsAvailable && segmentManifest.length > 0 && (
             <div className="toolbar-group toolbar-group-organs">
-              <span className="toolbar-label">Detected Organs</span>
+              <div className="organ-header">
+                <span className="toolbar-label">Detected Organs</span>
+                <span className="organ-count">{segmentManifest.length}</span>
+              </div>
               <div className="organ-actions">
                 <button
-                  className="toolbar-btn toolbar-btn-sm"
+                  className="chip"
                   onClick={showAllSegments}
                   title="Show all detected organs"
                 >
                   Show All
                 </button>
                 <button
-                  className="toolbar-btn toolbar-btn-sm"
+                  className="chip"
                   onClick={clearSegments}
                   title="Hide all organ meshes"
                 >
@@ -303,7 +339,7 @@ export default function Toolbar() {
                       </span>
                     </label>
                     {segmentLoadingSet.has(seg.name) && (
-                      <span className="organ-loading">⏳</span>
+                      <span className="organ-loading" />
                     )}
                   </div>
                 ))}

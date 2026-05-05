@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import { useAppStore } from './store/appStore'
 import Navbar from './components/Navbar'
+import HomeScreen from './components/HomeScreen'
 import BrowseScreen from './components/BrowseScreen'
 import UploadScreen from './components/UploadScreen'
 import ViewerScreen from './components/ViewerScreen'
@@ -22,7 +23,8 @@ function App() {
 
       <main className="app-main">
         <Routes>
-          <Route path="/" element={<BrowseScreen />} />
+          <Route path="/" element={<HomeScreen />} />
+          <Route path="/browse" element={<BrowseScreen />} />
           <Route path="/upload" element={<UploadScreen />} />
           <Route path="/viewer/:jobId" element={<ViewerScreen />} />
         </Routes>

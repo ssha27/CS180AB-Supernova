@@ -33,8 +33,10 @@ npm run dev
 ```bash
 cd backend/dicom-service
 pip install -e .
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 5001
 ```
+
+> The API gateway expects the DICOM service on port **5001**. If you run it on a different port, set `DICOM_SERVICE_URL=http://localhost:<port>` when starting the gateway.
 
 ### 4. Start the frontend
 

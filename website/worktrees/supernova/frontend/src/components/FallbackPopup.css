@@ -4,41 +4,85 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: 200;
+  animation: popup-rise 0.25s ease;
+}
+
+@keyframes popup-rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .fallback-popup-content {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.8rem 1.2rem;
-  background: rgba(30, 30, 36, 0.95);
-  border: 1px solid rgba(255, 200, 50, 0.3);
+  padding: 0.75rem 0.85rem 0.75rem 1rem;
+  background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-elevated) 100%);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--accent-glow);
+  position: relative;
+  overflow: hidden;
+}
+
+.fallback-popup-content::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
 }
 
 .fallback-icon {
-  font-size: 1.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--accent-glow);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
   flex-shrink: 0;
 }
 
 .fallback-popup-content p {
   margin: 0;
-  font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+  max-width: 480px;
 }
 
 .fallback-dismiss {
-  padding: 0.2rem 0.4rem;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 0.9rem;
+  color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
+  transition: all 0.15s ease;
+  font-family: inherit;
 }
 
 .fallback-dismiss:hover {
-  color: #fff;
+  background: var(--bg-card-hover);
+  border-color: var(--border-default);
+  color: var(--text-primary);
 }
