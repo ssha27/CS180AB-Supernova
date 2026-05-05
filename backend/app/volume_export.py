@@ -21,6 +21,31 @@ HIGH_QUALITY_MAX_DIM = 512
 RAS_TO_LPS = np.diag([-1.0, -1.0, 1.0, 1.0]).astype(np.float64)
 
 
+def _clean_dicom_string(value: object) -> str | None:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    return text or None
+
+
+def _extract_study_metadata(ds: pydicom.dataset.FileDataset, slice_count: int) -> dict:
+    return {
+        "patient_name": _clean_dicom_string(getattr(ds, "PatientName", None)),
+        "patient_id": _clean_dicom_string(getattr(ds, "PatientID", None)),
+        "patient_sex": _clean_dicom_string(getattr(ds, "PatientSex", None)),
+        "patient_age": _clean_dicom_string(getattr(ds, "PatientAge", None)),
+        "study_description": _clean_dicom_string(getattr(ds, "StudyDescription", None)),
+        "series_description": _clean_dicom_string(getattr(ds, "SeriesDescription", None)),
+        "study_date": _clean_dicom_string(getattr(ds, "StudyDate", None)),
+        "modality": _clean_dicom_string(getattr(ds, "Modality", None)),
+        "manufacturer": _clean_dicom_string(getattr(ds, "Manufacturer", None)),
+        "institution_name": _clean_dicom_string(getattr(ds, "InstitutionName", None)),
+        "accession_number": _clean_dicom_string(getattr(ds, "AccessionNumber", None)),
+        "slice_count": int(slice_count),
+    }
+
+
 def _normalize_vector(vector: np.ndarray) -> np.ndarray:
     norm = float(np.linalg.norm(vector))
     if norm == 0:
@@ -161,6 +186,7 @@ def load_dicom_series(dicom_dir: str) -> tuple[np.ndarray, dict]:
         "dtype": "int16",
         "min_hu": int(volume.min()),
         "max_hu": int(volume.max()),
+        "study": _extract_study_metadata(slices[0], len(slices)),
     }
 
     return volume, metadata

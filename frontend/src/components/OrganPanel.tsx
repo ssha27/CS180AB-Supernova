@@ -7,6 +7,7 @@ interface OrganPanelProps {
   visibleOrgans: Set<string>;
   hoverDetailsEnabled: boolean;
   activeHoverName: string | null;
+  onCollapse: () => void;
   onToggle: (name: string) => void;
   onShowAll: () => void;
   onHideAll: () => void;
@@ -21,6 +22,7 @@ export default function OrganPanel({
   visibleOrgans,
   hoverDetailsEnabled,
   activeHoverName,
+  onCollapse,
   onToggle,
   onShowAll,
   onHideAll,
@@ -83,44 +85,58 @@ export default function OrganPanel({
   };
 
   return (
-    <div className="p-3">
-      <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">
-        Organs ({visibleOrgans.size}/{organs.length})
-      </h2>
-
-      {/* Global buttons */}
-      <div className="flex gap-2 mb-3">
+    <div className="p-4">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-gray-500">
+            Anatomy Browser
+          </p>
+          <h2 className="mt-1 text-sm font-semibold uppercase tracking-wider text-gray-200">
+            Structures ({visibleOrgans.size}/{organs.length})
+          </h2>
+        </div>
         <button
-          onClick={onShowAll}
-          className="flex-1 text-xs py-1.5 bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+          type="button"
+          onClick={onCollapse}
+          className="min-w-[6.5rem] rounded-full border border-gray-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-300 transition-colors hover:border-sky-300/40 hover:text-sky-100"
+          data-testid="organ-panel-collapse"
         >
-          Show All
-        </button>
-        <button
-          onClick={onHideAll}
-          className="flex-1 text-xs py-1.5 bg-gray-800 hover:bg-gray-700 rounded transition-colors"
-        >
-          Hide All
+          Hide Panel
         </button>
       </div>
 
-      {/* Search */}
-      <input
-        type="text"
-        placeholder="Search organs..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full px-3 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded-lg mb-3 focus:outline-none focus:border-blue-500"
-        data-testid="organ-search"
-      />
+      <div className="mb-4 rounded-2xl border border-white/5 bg-gray-950/60 p-3">
+        <div className="mb-3 flex gap-2">
+          <button
+            onClick={onShowAll}
+            className="flex-1 rounded-xl bg-gray-800 px-3 py-2 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700"
+          >
+            Show All
+          </button>
+          <button
+            onClick={onHideAll}
+            className="flex-1 rounded-xl bg-gray-800 px-3 py-2 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700"
+          >
+            Hide All
+          </button>
+        </div>
 
-      {/* Category groups */}
+        <input
+          type="text"
+          placeholder="Search anatomy..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-sky-500"
+          data-testid="organ-search"
+        />
+      </div>
+
       {Array.from(filteredCategories.entries()).map(([category, items]) => (
-        <div key={category} className="mb-2">
+        <div key={category} className="mb-3 rounded-2xl border border-white/5 bg-gray-950/45 px-3 py-2">
           <div className="flex items-center justify-between group">
             <button
               onClick={() => toggleCollapse(category)}
-              className="flex items-center gap-1 text-xs font-medium text-gray-400 uppercase tracking-wider py-1"
+              className="flex items-center gap-1 py-1 text-xs font-medium uppercase tracking-wider text-gray-400"
             >
               <span className={`transition-transform ${collapsed.has(category) ? '' : 'rotate-90'}`}>
                 ▶
@@ -146,7 +162,7 @@ export default function OrganPanel({
           </div>
 
           {!collapsed.has(category) && (
-            <div className="ml-2">
+            <div className="ml-2 mt-2">
               {items.map((organ) => (
                 <div
                   key={organ.id}
@@ -159,7 +175,7 @@ export default function OrganPanel({
                   }}
                   onMouseLeave={() => onHoverCandidateChange(null)}
                   onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onToggle(organ.name); } }}
-                  className={`flex items-center gap-2 py-0.5 cursor-pointer rounded px-1 text-sm select-none transition-colors ${
+                  className={`flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1 text-sm transition-colors ${
                     activeHoverName === organ.name
                       ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-400/40'
                       : 'hover:bg-gray-800/50'
@@ -185,7 +201,7 @@ export default function OrganPanel({
         </div>
       ))}
 
-      <div className="mt-4 rounded-xl border border-gray-800 bg-gray-950/70 p-3">
+      <div className="mt-4 rounded-2xl border border-gray-800 bg-gray-950/70 p-3">
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"

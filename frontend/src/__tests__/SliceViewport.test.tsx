@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SliceViewport from '../components/SliceViewport';
 
@@ -163,8 +163,14 @@ describe('SliceViewport', () => {
         activeHoverName={null}
         hoverDetailsEnabled={true}
         cursor={{ z: 0, y: 0, x: 0 }}
+        windowCenter={50}
+        windowWidth={400}
+        anatomyLabelsEnabled={true}
+        interactionMode="navigate"
         onCursorChange={vi.fn()}
         onHoverCandidateChange={vi.fn()}
+        onDistanceMeasurementChange={vi.fn()}
+        onProbeChange={vi.fn()}
       />,
     );
 
@@ -178,5 +184,78 @@ describe('SliceViewport', () => {
     expect(screen.getByText('Coronal')).toBeInTheDocument();
     expect(screen.getByText('Sagittal')).toBeInTheDocument();
     expect(screen.getAllByText(/512\s*x\s*510/)).toHaveLength(2);
+    expect(screen.getByTestId('slice-anatomy-label-axial-kidney_right')).toBeInTheDocument();
+  });
+
+  it('reports spacing-aware millimeter distance from real slice pane clicks', async () => {
+    const onDistanceMeasurementChange = vi.fn();
+
+    render(
+      <SliceViewport
+        jobId="job-123"
+        volume={{
+          intensity: {
+            file: 'volume.raw',
+            dimensions: TEST_DIMENSIONS,
+            spacing: TEST_SPACING,
+            origin: [0, 0, 0],
+            dtype: 'int16',
+            byte_order: 'little',
+            high_quality: false,
+          },
+          segmentation: {
+            file: 'segmentation.raw',
+            dimensions: TEST_DIMENSIONS,
+            spacing: TEST_SPACING,
+            origin: [0, 0, 0],
+            dtype: 'uint16',
+            byte_order: 'little',
+            high_quality: false,
+          },
+        }}
+        organs={[
+          {
+            id: 2,
+            name: 'kidney_right',
+            color: [185, 102, 83],
+            file: 'kidney_right.stl',
+            vertex_count: 4000,
+            category: 'organs',
+          },
+        ]}
+        requestedOrgans={new Set()}
+        displayedOrgans={new Set(['kidney_right'])}
+        activeHoverName={null}
+        hoverDetailsEnabled={true}
+        cursor={{ z: 0, y: 0, x: 0 }}
+        windowCenter={50}
+        windowWidth={400}
+        anatomyLabelsEnabled={true}
+        interactionMode="distance"
+        onCursorChange={vi.fn()}
+        onHoverCandidateChange={vi.fn()}
+        onDistanceMeasurementChange={onDistanceMeasurementChange}
+        onProbeChange={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const axialPane = screen.getByTestId('slice-pane-axial');
+
+    fireEvent.pointerDown(axialPane, { clientX: 4, clientY: 4 });
+    fireEvent.pointerDown(axialPane, { clientX: 28, clientY: 4 });
+
+    expect(onDistanceMeasurementChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        plane: 'axial',
+        distanceMm: 24,
+      }),
+    );
+    expect(screen.getByTestId('slice-distance-readout-axial')).toHaveTextContent('24.0 mm');
   });
 });

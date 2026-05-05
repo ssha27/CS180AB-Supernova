@@ -17,6 +17,7 @@ function renderOrganPanel(props: Partial<Parameters<typeof OrganPanel>[0]> = {})
     visibleOrgans: new Set(['spleen', 'liver']),
     hoverDetailsEnabled: true,
     activeHoverName: null,
+    onCollapse: vi.fn(),
     onToggle: vi.fn(),
     onShowAll: vi.fn(),
     onHideAll: vi.fn(),
@@ -32,13 +33,21 @@ function renderOrganPanel(props: Partial<Parameters<typeof OrganPanel>[0]> = {})
 describe('OrganPanel', () => {
   it('renders organ count', () => {
     renderOrganPanel();
-    expect(screen.getByText('Organs (2/5)')).toBeInTheDocument();
+    expect(screen.getByText('Structures (2/5)')).toBeInTheDocument();
   });
 
   it('renders show/hide all buttons', () => {
     renderOrganPanel();
     expect(screen.getByText('Show All')).toBeInTheDocument();
     expect(screen.getByText('Hide All')).toBeInTheDocument();
+  });
+
+  it('calls onCollapse when clicking Collapse', () => {
+    const onCollapse = vi.fn();
+    renderOrganPanel({ onCollapse });
+
+    fireEvent.click(screen.getByTestId('organ-panel-collapse'));
+    expect(onCollapse).toHaveBeenCalled();
   });
 
   it('renders organ names without underscores', () => {

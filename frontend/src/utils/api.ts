@@ -29,6 +29,21 @@ export interface VolumeDirection {
   column: [number, number, number];
 }
 
+export interface StudyMetadata {
+  patient_name?: string | null;
+  patient_id?: string | null;
+  patient_sex?: string | null;
+  patient_age?: string | null;
+  study_description?: string | null;
+  series_description?: string | null;
+  study_date?: string | null;
+  modality?: string | null;
+  manufacturer?: string | null;
+  institution_name?: string | null;
+  accession_number?: string | null;
+  slice_count?: number;
+}
+
 export interface VolumeAsset {
   file: string;
   dimensions: [number, number, number];
@@ -43,6 +58,7 @@ export interface VolumeAsset {
   max_hu?: number;
   min_label?: number;
   max_label?: number;
+  study?: StudyMetadata;
 }
 
 export interface VolumeBundle {

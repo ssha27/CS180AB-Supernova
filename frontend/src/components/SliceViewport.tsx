@@ -11,17 +11,25 @@ import {
 import VTKRenderer from './VTKRenderer';
 import type { ClippingState } from './ClippingControls';
 import { getVolumeUrl, type OrganInfo, type VolumeAsset, type VolumeBundle } from '../utils/api';
+import {
+  type SliceDistanceMeasurementSummary,
+  type SliceInteractionMode,
+  type SliceProbeSummary,
+} from '../utils/viewerTools';
 import type { HoverTarget } from '../utils/hoverDetails';
+import { formatOrganName } from '../utils/hoverDetails';
 import {
   buildSlicePixels,
+  computeVoxelDistanceMm,
   fitSliceToViewport,
   getCrosshairCoordinates,
+  getIntensityAtPlanePoint,
   getPlaneDisplayGeometry,
   getLabelAtPlanePoint,
   type SliceCursor,
+  type SlicePoint,
   type SlicePlane,
   type VolumeSpacing,
-  type SliceViewportRect,
   stepSliceCursor,
   updateCursorFromPlanePoint,
 } from '../utils/sliceUtils';
@@ -35,8 +43,14 @@ interface SliceViewportProps {
   activeHoverName: string | null;
   hoverDetailsEnabled: boolean;
   cursor: SliceCursor;
+  windowCenter: number;
+  windowWidth: number;
+  anatomyLabelsEnabled: boolean;
+  interactionMode: SliceInteractionMode;
   onCursorChange: (cursor: SliceCursor) => void;
   onHoverCandidateChange: (target: HoverTarget | null) => void;
+  onDistanceMeasurementChange: (measurement: SliceDistanceMeasurementSummary | null) => void;
+  onProbeChange: (probe: SliceProbeSummary | null) => void;
 }
 
 interface LoadedSliceVolume {
@@ -58,8 +72,32 @@ interface SlicePaneProps {
   focusedLabel: number | null;
   cursor: SliceCursor;
   hoverDetailsEnabled: boolean;
+  windowCenter: number;
+  windowWidth: number;
+  anatomyLabelsEnabled: boolean;
+  interactionMode: SliceInteractionMode;
+  distanceMeasurement?: DistanceMeasurementState;
+  probeSample?: PaneInteractionSample;
   onCursorChange: (cursor: SliceCursor) => void;
   onHoverCandidateChange: (target: HoverTarget | null) => void;
+  onDistanceSample: (sample: PaneInteractionSample) => void;
+  onProbeSample: (sample: PaneInteractionSample) => void;
+}
+
+interface PaneInteractionSample {
+  plane: SlicePlane;
+  planeX: number;
+  planeY: number;
+  point: SlicePoint;
+  label: number;
+  intensity: number;
+  organName: string | null;
+}
+
+interface DistanceMeasurementState {
+  start: PaneInteractionSample;
+  end: PaneInteractionSample | null;
+  distanceMm: number | null;
 }
 
 const DISABLED_CLIPPING: ClippingState = {
@@ -146,18 +184,64 @@ function SlicePane({
   focusedLabel,
   cursor,
   hoverDetailsEnabled,
+  windowCenter,
+  windowWidth,
+  anatomyLabelsEnabled,
+  interactionMode,
+  distanceMeasurement,
+  probeSample,
   onCursorChange,
   onHoverCandidateChange,
+  onDistanceSample,
+  onProbeSample,
 }: SlicePaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerDownRef = useRef(false);
-  const displayRectRef = useRef<SliceViewportRect>({ left: 0, top: 0, width: 0, height: 0 });
   const [paneSize, setPaneSize] = useState({ width: 0, height: 0 });
 
   const planeGeometry = useMemo(
     () => getPlaneDisplayGeometry(plane, dimensions, spacing),
     [dimensions, plane, spacing],
+  );
+
+  const sliceRenderData = useMemo(
+    () => buildSlicePixels({
+      plane,
+      cursor,
+      dimensions,
+      intensityData,
+      segmentationData,
+      visibleLabels,
+      colorByLabel,
+      focusedLabel,
+      windowCenter,
+      windowWidth,
+      collectLabelAnchors: anatomyLabelsEnabled,
+    }),
+    [
+      anatomyLabelsEnabled,
+      colorByLabel,
+      cursor,
+      dimensions,
+      focusedLabel,
+      intensityData,
+      plane,
+      segmentationData,
+      visibleLabels,
+      windowCenter,
+      windowWidth,
+    ],
+  );
+
+  const fittedDisplay = useMemo(
+    () => fitSliceToViewport(
+      paneSize.width,
+      paneSize.height,
+      planeGeometry.displayWidth,
+      planeGeometry.displayHeight,
+    ),
+    [paneSize.height, paneSize.width, planeGeometry.displayHeight, planeGeometry.displayWidth],
   );
 
   useEffect(() => {
@@ -195,24 +279,6 @@ function SlicePane({
       return;
     }
 
-    const pixels = buildSlicePixels({
-      plane,
-      cursor,
-      dimensions,
-      intensityData,
-      segmentationData,
-      visibleLabels,
-      colorByLabel,
-      focusedLabel,
-    });
-    const fitted = fitSliceToViewport(
-      paneSize.width,
-      paneSize.height,
-      planeGeometry.displayWidth,
-      planeGeometry.displayHeight,
-    );
-    displayRectRef.current = fitted;
-
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round(paneSize.width * dpr));
     canvas.height = Math.max(1, Math.round(paneSize.height * dpr));
@@ -225,49 +291,48 @@ function SlicePane({
     context.imageSmoothingEnabled = false;
 
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = pixels.width;
-    tempCanvas.height = pixels.height;
+    tempCanvas.width = sliceRenderData.width;
+    tempCanvas.height = sliceRenderData.height;
     const tempContext = tempCanvas.getContext('2d');
     if (!tempContext) {
       return;
     }
 
     tempContext.putImageData(
-      new ImageData(new Uint8ClampedArray(pixels.pixels), pixels.width, pixels.height),
+      new ImageData(new Uint8ClampedArray(sliceRenderData.pixels), sliceRenderData.width, sliceRenderData.height),
       0,
       0,
     );
-    context.drawImage(tempCanvas, fitted.left, fitted.top, fitted.width, fitted.height);
+    context.drawImage(
+      tempCanvas,
+      fittedDisplay.left,
+      fittedDisplay.top,
+      fittedDisplay.width,
+      fittedDisplay.height,
+    );
 
     const crosshair = getCrosshairCoordinates(plane, cursor);
-    const crosshairX = fitted.left + ((crosshair.x + 0.5) / pixels.width) * fitted.width;
-    const crosshairY = fitted.top + ((crosshair.y + 0.5) / pixels.height) * fitted.height;
+    const crosshairX = fittedDisplay.left + ((crosshair.x + 0.5) / sliceRenderData.width) * fittedDisplay.width;
+    const crosshairY = fittedDisplay.top + ((crosshair.y + 0.5) / sliceRenderData.height) * fittedDisplay.height;
 
     context.save();
     context.strokeStyle = accentColor;
     context.globalAlpha = 0.95;
     context.lineWidth = 1;
     context.beginPath();
-    context.moveTo(crosshairX, fitted.top);
-    context.lineTo(crosshairX, fitted.top + fitted.height);
-    context.moveTo(fitted.left, crosshairY);
-    context.lineTo(fitted.left + fitted.width, crosshairY);
+    context.moveTo(crosshairX, fittedDisplay.top);
+    context.lineTo(crosshairX, fittedDisplay.top + fittedDisplay.height);
+    context.moveTo(fittedDisplay.left, crosshairY);
+    context.lineTo(fittedDisplay.left + fittedDisplay.width, crosshairY);
     context.stroke();
     context.restore();
   }, [
     accentColor,
-    colorByLabel,
     cursor,
-    dimensions,
-    focusedLabel,
-    intensityData,
+    fittedDisplay,
     paneSize.height,
     paneSize.width,
-    plane,
-    planeGeometry.displayHeight,
-    planeGeometry.displayWidth,
-    segmentationData,
-    visibleLabels,
+    sliceRenderData,
   ]);
 
   const resolvePlanePoint = useCallback((clientX: number, clientY: number) => {
@@ -277,28 +342,56 @@ function SlicePane({
     }
 
     const bounds = container.getBoundingClientRect();
-    const displayRect = displayRectRef.current;
-    if (displayRect.width <= 0 || displayRect.height <= 0) {
+    if (fittedDisplay.width <= 0 || fittedDisplay.height <= 0) {
       return null;
     }
 
     const localX = clientX - bounds.left;
     const localY = clientY - bounds.top;
-    const withinX = localX >= displayRect.left && localX <= displayRect.left + displayRect.width;
-    const withinY = localY >= displayRect.top && localY <= displayRect.top + displayRect.height;
+    const withinX = localX >= fittedDisplay.left && localX <= fittedDisplay.left + fittedDisplay.width;
+    const withinY = localY >= fittedDisplay.top && localY <= fittedDisplay.top + fittedDisplay.height;
 
     if (!withinX || !withinY) {
       return null;
     }
 
-    const planeX = Math.floor(((localX - displayRect.left) / displayRect.width) * planeGeometry.pixelWidth);
-    const planeY = Math.floor(((localY - displayRect.top) / displayRect.height) * planeGeometry.pixelHeight);
+    const planeX = Math.floor(((localX - fittedDisplay.left) / fittedDisplay.width) * planeGeometry.pixelWidth);
+    const planeY = Math.floor(((localY - fittedDisplay.top) / fittedDisplay.height) * planeGeometry.pixelHeight);
 
     return {
       x: Math.min(Math.max(planeX, 0), planeGeometry.pixelWidth - 1),
       y: Math.min(Math.max(planeY, 0), planeGeometry.pixelHeight - 1),
     };
-  }, [planeGeometry.pixelHeight, planeGeometry.pixelWidth]);
+  }, [fittedDisplay, planeGeometry.pixelHeight, planeGeometry.pixelWidth]);
+
+  const buildInteractionSample = useCallback((planeX: number, planeY: number): PaneInteractionSample => {
+    const { label, point } = getLabelAtPlanePoint(
+      plane,
+      cursor,
+      planeX,
+      planeY,
+      dimensions,
+      segmentationData,
+    );
+    const { intensity } = getIntensityAtPlanePoint(
+      plane,
+      cursor,
+      planeX,
+      planeY,
+      dimensions,
+      intensityData,
+    );
+
+    return {
+      plane,
+      planeX,
+      planeY,
+      point,
+      label,
+      intensity,
+      organName: organByLabel.get(label)?.name ?? null,
+    };
+  }, [cursor, dimensions, intensityData, organByLabel, plane, segmentationData]);
 
   const emitHoverCandidate = useCallback((clientX: number, clientY: number, planeX: number, planeY: number) => {
     if (!hoverDetailsEnabled) {
@@ -338,9 +431,72 @@ function SlicePane({
     segmentationData,
   ]);
 
+  const projectOverlayPoint = useCallback((planeX: number, planeY: number) => {
+    if (fittedDisplay.width <= 0 || fittedDisplay.height <= 0) {
+      return null;
+    }
+
+    return {
+      left: fittedDisplay.left + ((planeX + 0.5) / sliceRenderData.width) * fittedDisplay.width,
+      top: fittedDisplay.top + ((planeY + 0.5) / sliceRenderData.height) * fittedDisplay.height,
+    };
+  }, [fittedDisplay, sliceRenderData.height, sliceRenderData.width]);
+
+  const anatomyLabels = useMemo(
+    () => sliceRenderData.labelAnchors
+      .filter((anchor) => anchor.count >= 12 || anchor.label === focusedLabel)
+      .slice(0, 6)
+      .map((anchor) => {
+        const organ = organByLabel.get(anchor.label);
+        const position = projectOverlayPoint(anchor.x, anchor.y);
+
+        if (!organ || !position) {
+          return null;
+        }
+
+        return {
+          label: anchor.label,
+          organ,
+          position,
+        };
+      })
+      .filter((label): label is { label: number; organ: OrganInfo; position: { left: number; top: number } } => label !== null),
+    [focusedLabel, organByLabel, projectOverlayPoint, sliceRenderData.labelAnchors],
+  );
+
+  const measurementStartPosition = distanceMeasurement
+    ? projectOverlayPoint(distanceMeasurement.start.planeX, distanceMeasurement.start.planeY)
+    : null;
+  const measurementEndPosition = distanceMeasurement?.end
+    ? projectOverlayPoint(distanceMeasurement.end.planeX, distanceMeasurement.end.planeY)
+    : null;
+  const probePosition = probeSample
+    ? projectOverlayPoint(probeSample.planeX, probeSample.planeY)
+    : null;
+
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const planePoint = resolvePlanePoint(event.clientX, event.clientY);
     if (!planePoint) {
+      return;
+    }
+
+    const applyCursorPoint = () => {
+      startTransition(() => {
+        onCursorChange(updateCursorFromPlanePoint(plane, cursor, planePoint.x, planePoint.y, dimensions));
+      });
+    };
+
+    if (interactionMode === 'distance') {
+      onHoverCandidateChange(null);
+      applyCursorPoint();
+      onDistanceSample(buildInteractionSample(planePoint.x, planePoint.y));
+      return;
+    }
+
+    if (interactionMode === 'probe') {
+      onHoverCandidateChange(null);
+      applyCursorPoint();
+      onProbeSample(buildInteractionSample(planePoint.x, planePoint.y));
       return;
     }
 
@@ -350,7 +506,18 @@ function SlicePane({
     startTransition(() => {
       onCursorChange(updateCursorFromPlanePoint(plane, cursor, planePoint.x, planePoint.y, dimensions));
     });
-  }, [cursor, dimensions, onCursorChange, onHoverCandidateChange, plane, resolvePlanePoint]);
+  }, [
+    buildInteractionSample,
+    cursor,
+    dimensions,
+    interactionMode,
+    onCursorChange,
+    onDistanceSample,
+    onHoverCandidateChange,
+    onProbeSample,
+    plane,
+    resolvePlanePoint,
+  ]);
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const planePoint = resolvePlanePoint(event.clientX, event.clientY);
@@ -424,6 +591,114 @@ function SlicePane({
         data-testid={`slice-pane-${plane}`}
       >
         <canvas ref={canvasRef} className="h-full w-full" />
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+          {measurementStartPosition && (
+            <circle
+              cx={measurementStartPosition.left}
+              cy={measurementStartPosition.top}
+              r="5"
+              fill="#f8fafc"
+              stroke={accentColor}
+              strokeWidth="2"
+            />
+          )}
+          {measurementStartPosition && measurementEndPosition && (
+            <>
+              <line
+                x1={measurementStartPosition.left}
+                y1={measurementStartPosition.top}
+                x2={measurementEndPosition.left}
+                y2={measurementEndPosition.top}
+                stroke="#f8fafc"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+              />
+              <circle
+                cx={measurementEndPosition.left}
+                cy={measurementEndPosition.top}
+                r="5"
+                fill="#f8fafc"
+                stroke={accentColor}
+                strokeWidth="2"
+              />
+            </>
+          )}
+          {probePosition && (
+            <>
+              <circle
+                cx={probePosition.left}
+                cy={probePosition.top}
+                r="8"
+                fill="rgba(15,23,42,0.72)"
+                stroke="#38bdf8"
+                strokeWidth="2"
+              />
+              <line
+                x1={probePosition.left - 10}
+                y1={probePosition.top}
+                x2={probePosition.left + 10}
+                y2={probePosition.top}
+                stroke="#38bdf8"
+                strokeWidth="1.5"
+              />
+              <line
+                x1={probePosition.left}
+                y1={probePosition.top - 10}
+                x2={probePosition.left}
+                y2={probePosition.top + 10}
+                stroke="#38bdf8"
+                strokeWidth="1.5"
+              />
+            </>
+          )}
+        </svg>
+        {distanceMeasurement?.end && measurementEndPosition && distanceMeasurement.distanceMm !== null && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-full border border-white/15 bg-slate-950/88 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(15,23,42,0.45)]"
+            style={{
+              left: `${(measurementStartPosition!.left + measurementEndPosition.left) / 2}px`,
+              top: `${(measurementStartPosition!.top + measurementEndPosition.top) / 2 - 18}px`,
+              transform: 'translate(-50%, -50%)',
+            }}
+            data-testid={`slice-distance-readout-${plane}`}
+          >
+            {distanceMeasurement.distanceMm.toFixed(1)} mm
+          </div>
+        )}
+        {probeSample && probePosition && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-2xl border border-sky-400/25 bg-slate-950/88 px-3 py-2 text-[11px] text-slate-100 shadow-[0_12px_28px_rgba(15,23,42,0.45)]"
+            style={{
+              left: `${probePosition.left + 14}px`,
+              top: `${probePosition.top - 14}px`,
+            }}
+            data-testid={`slice-probe-readout-${plane}`}
+          >
+            <p className="font-semibold uppercase tracking-[0.18em] text-sky-200/85">Probe</p>
+            <p className="mt-1 font-medium text-white">{probeSample.intensity} HU</p>
+            <p className="mt-1 text-slate-400">
+              {probeSample.organName ? formatOrganName(probeSample.organName) : 'Unlabeled tissue'}
+            </p>
+          </div>
+        )}
+        {anatomyLabelsEnabled && anatomyLabels.map(({ label, organ, position }) => (
+          <div
+            key={`${plane}-${label}`}
+            className={`pointer-events-none absolute z-10 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] shadow-[0_8px_18px_rgba(2,6,23,0.45)] ${
+              focusedLabel === label
+                ? 'border-sky-300/60 bg-sky-400/18 text-sky-50'
+                : 'border-white/10 bg-slate-950/82 text-slate-100'
+            }`}
+            style={{
+              left: `${position.left}px`,
+              top: `${position.top}px`,
+              transform: 'translate(-50%, -50%)',
+            }}
+            data-testid={`slice-anatomy-label-${plane}-${organ.name}`}
+          >
+            {formatOrganName(organ.name)}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -438,11 +713,19 @@ export default function SliceViewport({
   activeHoverName,
   hoverDetailsEnabled,
   cursor,
+  windowCenter,
+  windowWidth,
+  anatomyLabelsEnabled,
+  interactionMode,
   onCursorChange,
   onHoverCandidateChange,
+  onDistanceMeasurementChange,
+  onProbeChange,
 }: SliceViewportProps) {
   const [loadedVolume, setLoadedVolume] = useState<{ key: string; data: LoadedSliceVolume } | null>(null);
   const [loadingError, setLoadingError] = useState<{ key: string; message: string } | null>(null);
+  const [distanceMeasurements, setDistanceMeasurements] = useState<Partial<Record<SlicePlane, DistanceMeasurementState>>>({});
+  const [probeSamples, setProbeSamples] = useState<Partial<Record<SlicePlane, PaneInteractionSample>>>({});
   const cacheKey = volume ? `${jobId}:${volume.intensity.file}:${volume.segmentation.file}` : null;
 
   useEffect(() => {
@@ -474,6 +757,25 @@ export default function SliceViewport({
     };
   }, [cacheKey, jobId, volume]);
 
+  useEffect(() => {
+    setDistanceMeasurements({});
+    setProbeSamples({});
+    onDistanceMeasurementChange(null);
+    onProbeChange(null);
+  }, [cacheKey, onDistanceMeasurementChange, onProbeChange]);
+
+  useEffect(() => {
+    setDistanceMeasurements({});
+    setProbeSamples({});
+
+    if (interactionMode !== 'distance') {
+      onDistanceMeasurementChange(null);
+    }
+    if (interactionMode !== 'probe') {
+      onProbeChange(null);
+    }
+  }, [interactionMode, onDistanceMeasurementChange, onProbeChange]);
+
   const organByLabel = useMemo(() => new Map(organs.map((organ) => [organ.id, organ])), [organs]);
   const organByName = useMemo(() => new Map(organs.map((organ) => [organ.name, organ])), [organs]);
   const colorByLabel = useMemo(
@@ -488,6 +790,60 @@ export default function SliceViewport({
   const resolvedVolume = loadedVolume?.key === cacheKey ? loadedVolume.data : null;
   const resolvedError = loadingError?.key === cacheKey ? loadingError.message : null;
   const isLoading = Boolean(volume && !resolvedVolume && !resolvedError);
+
+  const handleDistanceSample = useCallback((sample: PaneInteractionSample) => {
+    if (!volume) {
+      return;
+    }
+
+    setDistanceMeasurements((prev) => {
+      const current = prev[sample.plane];
+
+      if (!current || current.end) {
+        return {
+          ...prev,
+          [sample.plane]: {
+            start: sample,
+            end: null,
+            distanceMm: null,
+          },
+        };
+      }
+
+      const distanceMm = computeVoxelDistanceMm(current.start.point, sample.point, volume.intensity.spacing);
+      const nextMeasurement: DistanceMeasurementState = {
+        start: current.start,
+        end: sample,
+        distanceMm,
+      };
+
+      onDistanceMeasurementChange({
+        plane: sample.plane,
+        start: current.start.point,
+        end: sample.point,
+        distanceMm,
+      });
+
+      return {
+        ...prev,
+        [sample.plane]: nextMeasurement,
+      };
+    });
+  }, [onDistanceMeasurementChange, volume]);
+
+  const handleProbeSample = useCallback((sample: PaneInteractionSample) => {
+    setProbeSamples((prev) => ({
+      ...prev,
+      [sample.plane]: sample,
+    }));
+    onProbeChange({
+      plane: sample.plane,
+      point: sample.point,
+      intensity: sample.intensity,
+      label: sample.label,
+      organName: sample.organName,
+    });
+  }, [onProbeChange]);
 
   if (!volume) {
     return (
@@ -554,8 +910,16 @@ export default function SliceViewport({
         focusedLabel={focusedLabel}
         cursor={cursor}
         hoverDetailsEnabled={hoverDetailsEnabled}
+        windowCenter={windowCenter}
+        windowWidth={windowWidth}
+        anatomyLabelsEnabled={anatomyLabelsEnabled}
+        interactionMode={interactionMode}
+        distanceMeasurement={distanceMeasurements.axial}
+        probeSample={probeSamples.axial}
         onCursorChange={onCursorChange}
         onHoverCandidateChange={onHoverCandidateChange}
+        onDistanceSample={handleDistanceSample}
+        onProbeSample={handleProbeSample}
       />
 
       <div
@@ -599,8 +963,16 @@ export default function SliceViewport({
         focusedLabel={focusedLabel}
         cursor={cursor}
         hoverDetailsEnabled={hoverDetailsEnabled}
+        windowCenter={windowCenter}
+        windowWidth={windowWidth}
+        anatomyLabelsEnabled={anatomyLabelsEnabled}
+        interactionMode={interactionMode}
+        distanceMeasurement={distanceMeasurements.coronal}
+        probeSample={probeSamples.coronal}
         onCursorChange={onCursorChange}
         onHoverCandidateChange={onHoverCandidateChange}
+        onDistanceSample={handleDistanceSample}
+        onProbeSample={handleProbeSample}
       />
 
       <SlicePane
@@ -617,8 +989,16 @@ export default function SliceViewport({
         focusedLabel={focusedLabel}
         cursor={cursor}
         hoverDetailsEnabled={hoverDetailsEnabled}
+        windowCenter={windowCenter}
+        windowWidth={windowWidth}
+        anatomyLabelsEnabled={anatomyLabelsEnabled}
+        interactionMode={interactionMode}
+        distanceMeasurement={distanceMeasurements.sagittal}
+        probeSample={probeSamples.sagittal}
         onCursorChange={onCursorChange}
         onHoverCandidateChange={onHoverCandidateChange}
+        onDistanceSample={handleDistanceSample}
+        onProbeSample={handleProbeSample}
       />
     </div>
   );

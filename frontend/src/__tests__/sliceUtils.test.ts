@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSlicePixels,
+  computeVoxelDistanceMm,
   createDefaultSliceCursor,
   getPlaneDisplayGeometry,
+  getIntensityAtPlanePoint,
+  getWindowPresetById,
   sampleSlicePoint,
   stepSliceCursor,
   updateCursorFromPlanePoint,
@@ -77,6 +80,7 @@ describe('sliceUtils', () => {
     expect(overlay.pixels[0]).toBeGreaterThan(noOverlay.pixels[0]);
     expect(overlay.pixels[1]).toBeLessThan(noOverlay.pixels[1]);
     expect(overlay.pixels[3]).toBe(255);
+    expect(overlay.labelAnchors).toEqual([]);
   });
 
   it('updates the crosshair position from an in-plane drag point', () => {
@@ -85,5 +89,56 @@ describe('sliceUtils', () => {
 
     expect(updateCursorFromPlanePoint('axial', cursor, 8, 9, dimensions)).toEqual({ z: 4, y: 9, x: 8 });
     expect(updateCursorFromPlanePoint('sagittal', cursor, 4, 7, dimensions)).toEqual({ z: 7, y: 4, x: 6 });
+  });
+
+  it('looks up CT window presets by identifier with a soft-tissue fallback', () => {
+    expect(getWindowPresetById('lung')).toMatchObject({ center: -600, width: 1500 });
+    expect(getWindowPresetById('missing')).toMatchObject({ center: 50, width: 400 });
+  });
+
+  it('samples HU intensity at a plane coordinate', () => {
+    const intensityData = new Int16Array([
+      10, 20,
+      30, 40,
+    ]);
+
+    expect(
+      getIntensityAtPlanePoint('axial', { z: 0, y: 0, x: 0 }, 1, 0, [1, 2, 2], intensityData),
+    ).toEqual({
+      intensity: 20,
+      point: { z: 0, y: 0, x: 1 },
+    });
+  });
+
+  it('computes a spacing-aware voxel distance in millimeters', () => {
+    expect(
+      computeVoxelDistanceMm(
+        { z: 2, y: 4, x: 5 },
+        { z: 2, y: 7, x: 9 },
+        [2.5, 1.5, 0.5],
+      ),
+    ).toBeCloseTo(Math.sqrt((3 * 1.5) ** 2 + (4 * 0.5) ** 2), 5);
+  });
+
+  it('collects slice label anchors when anatomy label extraction is enabled', () => {
+    const result = buildSlicePixels({
+      plane: 'axial',
+      cursor: { z: 0, y: 0, x: 0 },
+      dimensions: [1, 2, 3],
+      intensityData: new Int16Array(6).fill(25),
+      segmentationData: new Uint16Array([
+        0, 4, 4,
+        0, 4, 0,
+      ]),
+      visibleLabels: new Set([4]),
+      colorByLabel: new Map([[4, [20, 200, 20] as const]]),
+      focusedLabel: null,
+      collectLabelAnchors: true,
+    });
+
+    expect(result.labelAnchors).toHaveLength(1);
+    expect(result.labelAnchors[0]).toMatchObject({ label: 4, count: 3 });
+    expect(result.labelAnchors[0].x).toBeCloseTo(1.3333, 3);
+    expect(result.labelAnchors[0].y).toBeCloseTo(0.3333, 3);
   });
 });

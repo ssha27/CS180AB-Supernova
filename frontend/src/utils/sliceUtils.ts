@@ -33,10 +33,66 @@ export interface SlicePixelOptions {
   focusedLabel: number | null;
   windowCenter?: number;
   windowWidth?: number;
+  collectLabelAnchors?: boolean;
+}
+
+export interface WindowPreset {
+  id: string;
+  label: string;
+  center: number;
+  width: number;
+  description: string;
+}
+
+export interface SliceLabelAnchor {
+  label: number;
+  x: number;
+  y: number;
+  count: number;
 }
 
 const DEFAULT_WINDOW_CENTER = 50;
 const DEFAULT_WINDOW_WIDTH = 400;
+
+export const DEFAULT_WINDOW_PRESET_ID = 'soft-tissue';
+
+export const WINDOW_PRESETS: WindowPreset[] = [
+  {
+    id: DEFAULT_WINDOW_PRESET_ID,
+    label: 'Soft Tissue',
+    center: 50,
+    width: 400,
+    description: 'Balanced abdominal and general soft-tissue contrast.',
+  },
+  {
+    id: 'lung',
+    label: 'Lung',
+    center: -600,
+    width: 1500,
+    description: 'Wide window for pulmonary parenchyma and air-filled spaces.',
+  },
+  {
+    id: 'bone',
+    label: 'Bone',
+    center: 400,
+    width: 1800,
+    description: 'High-contrast cortical and trabecular bone detail.',
+  },
+  {
+    id: 'brain',
+    label: 'Brain',
+    center: 40,
+    width: 80,
+    description: 'Narrow intracranial soft-tissue discrimination.',
+  },
+  {
+    id: 'mediastinum',
+    label: 'Mediastinum',
+    center: 40,
+    width: 350,
+    description: 'Thoracic soft-tissue emphasis around the heart and vessels.',
+  },
+];
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -221,6 +277,37 @@ export function getLabelAtPlanePoint(
   };
 }
 
+export function getIntensityAtPlanePoint(
+  plane: SlicePlane,
+  cursor: SliceCursor,
+  planeX: number,
+  planeY: number,
+  dimensions: VolumeDimensions,
+  intensityData: Int16Array,
+): { intensity: number; point: SlicePoint } {
+  const point = sampleSlicePoint(plane, cursor, planeX, planeY, dimensions);
+  const index = getVolumeIndex(dimensions, point);
+  return {
+    intensity: intensityData[index] ?? 0,
+    point,
+  };
+}
+
+export function getWindowPresetById(id: string): WindowPreset {
+  return WINDOW_PRESETS.find((preset) => preset.id === id) ?? WINDOW_PRESETS[0];
+}
+
+export function computeVoxelDistanceMm(
+  start: SlicePoint,
+  end: SlicePoint,
+  spacing: VolumeSpacing,
+): number {
+  const deltaZ = (end.z - start.z) * spacing[0];
+  const deltaY = (end.y - start.y) * spacing[1];
+  const deltaX = (end.x - start.x) * spacing[2];
+  return Math.sqrt(deltaZ * deltaZ + deltaY * deltaY + deltaX * deltaX);
+}
+
 function windowHUValue(value: number, windowCenter: number, windowWidth: number): number {
   const lower = windowCenter - windowWidth / 2;
   const normalized = (value - lower) / Math.max(windowWidth, 1);
@@ -242,10 +329,14 @@ export function buildSlicePixels({
   focusedLabel,
   windowCenter = DEFAULT_WINDOW_CENTER,
   windowWidth = DEFAULT_WINDOW_WIDTH,
-}: SlicePixelOptions): { width: number; height: number; pixels: Uint8ClampedArray } {
+  collectLabelAnchors = false,
+}: SlicePixelOptions): { width: number; height: number; pixels: Uint8ClampedArray; labelAnchors: SliceLabelAnchor[] } {
   const { width, height } = getPlaneGeometry(plane, dimensions);
   const pixels = new Uint8ClampedArray(width * height * 4);
   const hasFocus = focusedLabel !== null;
+  const labelStats = collectLabelAnchors
+    ? new Map<number, { count: number; sumX: number; sumY: number }>()
+    : null;
 
   for (let planeY = 0; planeY < height; planeY += 1) {
     for (let planeX = 0; planeX < width; planeX += 1) {
@@ -260,6 +351,14 @@ export function buildSlicePixels({
 
       const label = segmentationData[index] ?? 0;
       if (label !== 0 && visibleLabels.has(label)) {
+        if (labelStats) {
+          const current = labelStats.get(label) ?? { count: 0, sumX: 0, sumY: 0 };
+          current.count += 1;
+          current.sumX += planeX;
+          current.sumY += planeY;
+          labelStats.set(label, current);
+        }
+
         const color = colorByLabel.get(label);
         if (color) {
           const alpha = hasFocus
@@ -278,5 +377,16 @@ export function buildSlicePixels({
     }
   }
 
-  return { width, height, pixels };
+  const labelAnchors = labelStats
+    ? Array.from(labelStats.entries())
+      .map(([label, stats]) => ({
+        label,
+        x: stats.sumX / stats.count,
+        y: stats.sumY / stats.count,
+        count: stats.count,
+      }))
+      .sort((left, right) => right.count - left.count)
+    : [];
+
+  return { width, height, pixels, labelAnchors };
 }

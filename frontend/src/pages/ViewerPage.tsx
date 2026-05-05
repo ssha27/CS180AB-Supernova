@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getJobResults, type JobResult } from '../utils/api';
+import StudyMetadataPanel from '../components/StudyMetadataPanel';
+import ViewerToolPanel from '../components/ViewerToolPanel';
 import VTKRenderer from '../components/VTKRenderer';
 import SliceViewport from '../components/SliceViewport';
 import OrganPanel from '../components/OrganPanel';
+import PanelDockButton from '../components/PanelDockButton';
 import ViewerControls, { type ViewerMode } from '../components/ViewerControls';
 import {
   HOVER_DWELL_MS,
@@ -11,7 +14,23 @@ import {
   getOrganDescription,
   type HoverTarget,
 } from '../utils/hoverDetails';
-import { createDefaultSliceCursor, type SliceCursor } from '../utils/sliceUtils';
+import {
+  createDefaultSliceCursor,
+  DEFAULT_WINDOW_PRESET_ID,
+  getWindowPresetById,
+  type SliceCursor,
+} from '../utils/sliceUtils';
+import type {
+  SliceDistanceMeasurementSummary,
+  SliceInteractionMode,
+  SliceProbeSummary,
+  VisibilityPresetId,
+} from '../utils/viewerTools';
+import {
+  buildVisibleOrganNameSet,
+  DEFAULT_VISIBILITY_PRESET_ID,
+  filterOrgansByVisibilityPreset,
+} from '../utils/viewerTools';
 
 const HOVER_EXIT_GRACE_MS = 240;
 
@@ -30,6 +49,14 @@ export default function ViewerPage() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewerMode>('model');
   const [sliceCursor, setSliceCursor] = useState<SliceCursor>({ z: 0, y: 0, x: 0 });
+  const [visibilityPresetId, setVisibilityPresetId] = useState<VisibilityPresetId>(DEFAULT_VISIBILITY_PRESET_ID);
+  const [toolPanelOpen, setToolPanelOpen] = useState(true);
+  const [organPanelOpen, setOrganPanelOpen] = useState(true);
+  const [metadataPanelOpen, setMetadataPanelOpen] = useState(true);
+  const [anatomyLabelsEnabled, setAnatomyLabelsEnabled] = useState(true);
+  const [interactionMode, setInteractionMode] = useState<SliceInteractionMode>('navigate');
+  const [latestDistanceMeasurement, setLatestDistanceMeasurement] = useState<SliceDistanceMeasurementSummary | null>(null);
+  const [latestProbe, setLatestProbe] = useState<SliceProbeSummary | null>(null);
   const [visibleOrgans, setVisibleOrgans] = useState<Set<string>>(new Set());
   const [hoverDetailsEnabled, setHoverDetailsEnabled] = useState(true);
   const [hoverCandidate, setHoverCandidate] = useState<HoverTarget | null>(null);
@@ -70,7 +97,7 @@ export default function ViewerPage() {
     getJobResults(jobId)
       .then((data) => {
         setResult(data);
-        setVisibleOrgans(new Set(data.organs.map((organ) => organ.name)));
+        setVisibleOrgans(buildVisibleOrganNameSet(data.organs, DEFAULT_VISIBILITY_PRESET_ID));
         if (data.volume) {
           setSliceCursor(createDefaultSliceCursor(data.volume.intensity.dimensions));
         }
@@ -257,8 +284,53 @@ export default function ViewerPage() {
     setActiveHover(null);
     setPinnedHover(null);
     setTooltipHovered(false);
+    setInteractionMode('navigate');
     setViewMode(nextMode);
   }, [clearHoverClearTimer, clearHoverTimer, result?.volume]);
+
+  const resetFocusState = useCallback(() => {
+    clearHoverTimer();
+    clearHoverClearTimer();
+    setHoverCandidate(null);
+    setActiveHover(null);
+    setPinnedHover(null);
+    setTooltipHovered(false);
+  }, [clearHoverClearTimer, clearHoverTimer]);
+
+  const handleVisibilityPresetChange = useCallback((nextPreset: VisibilityPresetId) => {
+    setVisibilityPresetId(nextPreset);
+    if (result) {
+      setVisibleOrgans(buildVisibleOrganNameSet(result.organs, nextPreset));
+    }
+    resetFocusState();
+  }, [resetFocusState, result]);
+
+  const handleInteractionModeChange = useCallback((nextMode: SliceInteractionMode) => {
+    if (!result?.volume) {
+      return;
+    }
+
+    setInteractionMode(nextMode);
+    setViewMode('slice');
+
+    if (nextMode !== 'distance') {
+      setLatestDistanceMeasurement(null);
+    }
+    if (nextMode !== 'probe') {
+      setLatestProbe(null);
+    }
+  }, [result?.volume]);
+
+  const handleAnatomyLabelsEnabledChange = useCallback((enabled: boolean) => {
+    if (!result?.volume) {
+      return;
+    }
+
+    setAnatomyLabelsEnabled(enabled);
+    if (enabled) {
+      setViewMode('slice');
+    }
+  }, [result?.volume]);
 
   const handlePinFocusedHover = useCallback(() => {
     const currentPinned = pinnedHoverRef.current;
@@ -297,8 +369,8 @@ export default function ViewerPage() {
   };
 
   const showAll = () => {
-    if (result) {
-      setVisibleOrgans(new Set(result.organs.map((o) => o.name)));
+    if (panelOrgans.length > 0) {
+      setVisibleOrgans(new Set(panelOrgans.map((organ) => organ.name)));
     }
   };
 
@@ -307,10 +379,10 @@ export default function ViewerPage() {
   };
 
   const showCategory = (category: string) => {
-    if (result) {
+    if (panelOrgans.length > 0) {
       setVisibleOrgans((prev) => {
         const next = new Set(prev);
-        result.organs
+        panelOrgans
           .filter((o) => o.category === category)
           .forEach((o) => next.add(o.name));
         return next;
@@ -319,10 +391,10 @@ export default function ViewerPage() {
   };
 
   const hideCategory = (category: string) => {
-    if (result) {
+    if (panelOrgans.length > 0) {
       setVisibleOrgans((prev) => {
         const next = new Set(prev);
-        result.organs
+        panelOrgans
           .filter((o) => o.category === category)
           .forEach((o) => next.delete(o.name));
         return next;
@@ -342,6 +414,9 @@ export default function ViewerPage() {
   }
 
   const focusedHover = pinnedHover ?? activeHover;
+  const activeWindowPreset = getWindowPresetById(DEFAULT_WINDOW_PRESET_ID);
+  const studyMetadataAsset = result?.volume?.intensity;
+  const panelOrgans = result ? filterOrgansByVisibilityPreset(result.organs, visibilityPresetId) : [];
 
   const displayedOrgans = new Set(visibleOrgans);
   if (focusedHover) {
@@ -400,24 +475,78 @@ export default function ViewerPage() {
       </div>
 
       {/* Left sidebar — organ panel */}
-      <div className="w-72 min-h-0 bg-gray-900 border-r border-gray-800 overflow-y-auto flex-shrink-0">
-        <OrganPanel
-          organs={result.organs}
-          visibleOrgans={visibleOrgans}
-          hoverDetailsEnabled={hoverDetailsEnabled}
-          activeHoverName={focusedHover?.name ?? null}
-          onToggle={toggleOrgan}
-          onShowAll={showAll}
-          onHideAll={hideAll}
-          onShowCategory={showCategory}
-          onHideCategory={hideCategory}
-          onHoverDetailsEnabledChange={handleHoverDetailsEnabledChange}
-          onHoverCandidateChange={handleHoverCandidateChange}
-        />
-      </div>
+      {organPanelOpen && (
+        <div className="w-72 min-h-0 bg-gray-900 border-r border-gray-800 overflow-y-auto flex-shrink-0">
+          <OrganPanel
+            organs={panelOrgans}
+            visibleOrgans={visibleOrgans}
+            hoverDetailsEnabled={hoverDetailsEnabled}
+            activeHoverName={focusedHover?.name ?? null}
+            onCollapse={() => setOrganPanelOpen(false)}
+            onToggle={toggleOrgan}
+            onShowAll={showAll}
+            onHideAll={hideAll}
+            onShowCategory={showCategory}
+            onHideCategory={hideCategory}
+            onHoverDetailsEnabledChange={handleHoverDetailsEnabledChange}
+            onHoverCandidateChange={handleHoverCandidateChange}
+          />
+        </div>
+      )}
 
       {/* Main viewport */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
+        <div className="absolute left-4 top-4 z-20 flex flex-col gap-3">
+          {toolPanelOpen ? (
+            <ViewerToolPanel
+              viewMode={viewMode}
+              sliceAvailable={sliceAvailable}
+              visibilityPresetId={visibilityPresetId}
+              anatomyLabelsEnabled={anatomyLabelsEnabled}
+              interactionMode={interactionMode}
+              latestDistance={latestDistanceMeasurement}
+              latestProbe={latestProbe}
+              onCollapse={() => setToolPanelOpen(false)}
+              onVisibilityPresetChange={handleVisibilityPresetChange}
+              onAnatomyLabelsEnabledChange={handleAnatomyLabelsEnabledChange}
+              onInteractionModeChange={handleInteractionModeChange}
+            />
+          ) : (
+            <PanelDockButton
+              eyebrow="Hidden Panel"
+              label="Reader Tools"
+              hint="Reopen presets, measurements, and anatomy labels."
+              onClick={() => setToolPanelOpen(true)}
+              testId="viewer-tool-panel-reopen"
+            />
+          )}
+
+          {!organPanelOpen && (
+            <PanelDockButton
+              eyebrow="Hidden Panel"
+              label="Organ List"
+              hint={`Reopen ${panelOrgans.length} structures from the active preset.`}
+              onClick={() => setOrganPanelOpen(true)}
+              testId="organ-panel-reopen"
+            />
+          )}
+        </div>
+
+        <div className="absolute right-4 top-20 z-20 max-h-[calc(100vh-10rem)] overflow-y-auto">
+          {metadataPanelOpen && studyMetadataAsset ? (
+            <StudyMetadataPanel asset={studyMetadataAsset} onCollapse={() => setMetadataPanelOpen(false)} />
+          ) : studyMetadataAsset ? (
+            <PanelDockButton
+              eyebrow="Hidden Panel"
+              label="Study Info"
+              hint="Reopen patient, scanner, and spacing metadata."
+              align="right"
+              onClick={() => setMetadataPanelOpen(true)}
+              testId="study-metadata-panel-reopen"
+            />
+          ) : null}
+        </div>
+
         {viewMode === 'slice' ? (
           <SliceViewport
             jobId={jobId}
@@ -428,8 +557,14 @@ export default function ViewerPage() {
             activeHoverName={focusedHover?.name ?? null}
             hoverDetailsEnabled={hoverDetailsEnabled}
             cursor={sliceCursor}
+            windowCenter={activeWindowPreset.center}
+            windowWidth={activeWindowPreset.width}
+            anatomyLabelsEnabled={anatomyLabelsEnabled}
+            interactionMode={interactionMode}
             onCursorChange={setSliceCursor}
             onHoverCandidateChange={handleHoverCandidateChange}
+            onDistanceMeasurementChange={setLatestDistanceMeasurement}
+            onProbeChange={setLatestProbe}
           />
         ) : (
           <VTKRenderer

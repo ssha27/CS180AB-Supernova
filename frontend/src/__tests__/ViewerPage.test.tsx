@@ -59,18 +59,30 @@ vi.mock('../components/ViewerControls', () => ({
 
 vi.mock('../components/OrganPanel', () => ({
   default: (props: {
+    organs: Array<{ name: string }>;
     visibleOrgans: Set<string>;
     hoverDetailsEnabled: boolean;
+    onCollapse: () => void;
     onHoverCandidateChange: (target: { name: string; source: 'sidebar'; clientX: number; clientY: number } | null) => void;
     onHoverDetailsEnabledChange: (enabled: boolean) => void;
   }) => (
     <div data-testid="organ-panel-mock">
+      <div data-testid="panel-organs">
+        {props.organs.map((organ) => organ.name).join(',')}
+      </div>
       <div data-testid="panel-visible-organs">
         {Array.from(props.visibleOrgans).sort().join(',')}
       </div>
       <div data-testid="panel-hover-enabled">
         {String(props.hoverDetailsEnabled)}
       </div>
+      <button
+        type="button"
+        data-testid="collapse-organ-panel"
+        onClick={props.onCollapse}
+      >
+        Collapse Organ Panel
+      </button>
       <button
         type="button"
         data-testid="sidebar-hover-kidney"
@@ -140,6 +152,10 @@ vi.mock('../components/SliceViewport', () => ({
   default: (props: {
     cursor: { z: number; y: number; x: number };
     activeHoverName: string | null;
+    windowCenter: number;
+    windowWidth: number;
+    anatomyLabelsEnabled: boolean;
+    interactionMode: 'navigate' | 'distance' | 'probe';
     onCursorChange: (cursor: { z: number; y: number; x: number }) => void;
     onHoverCandidateChange: (target: {
       name: string;
@@ -148,6 +164,19 @@ vi.mock('../components/SliceViewport', () => ({
       clientX: number;
       clientY: number;
     } | null) => void;
+    onDistanceMeasurementChange: (measurement: {
+      plane: 'axial';
+      start: { z: number; y: number; x: number };
+      end: { z: number; y: number; x: number };
+      distanceMm: number;
+    } | null) => void;
+    onProbeChange: (probe: {
+      plane: 'axial';
+      point: { z: number; y: number; x: number };
+      intensity: number;
+      label: number;
+      organName: string | null;
+    } | null) => void;
   }) => (
     <div data-testid="slice-viewport-mock">
       <div data-testid="slice-cursor">
@@ -155,6 +184,15 @@ vi.mock('../components/SliceViewport', () => ({
       </div>
       <div data-testid="slice-active-hover-name">
         {props.activeHoverName ?? ''}
+      </div>
+      <div data-testid="slice-window-values">
+        {props.windowCenter}/{props.windowWidth}
+      </div>
+      <div data-testid="slice-labels-enabled">
+        {String(props.anatomyLabelsEnabled)}
+      </div>
+      <div data-testid="slice-interaction-mode">
+        {props.interactionMode}
       </div>
       <button
         type="button"
@@ -179,6 +217,31 @@ vi.mock('../components/SliceViewport', () => ({
       >
         Move Slice Cursor
       </button>
+      <button
+        type="button"
+        data-testid="slice-report-distance"
+        onClick={() => props.onDistanceMeasurementChange({
+          plane: 'axial',
+          start: { z: 1, y: 2, x: 3 },
+          end: { z: 1, y: 5, x: 7 },
+          distanceMm: 16.4,
+        })}
+      >
+        Report Distance
+      </button>
+      <button
+        type="button"
+        data-testid="slice-report-probe"
+        onClick={() => props.onProbeChange({
+          plane: 'axial',
+          point: { z: 4, y: 5, x: 6 },
+          intensity: 72,
+          label: 2,
+          organName: 'kidney_right',
+        })}
+      >
+        Report Probe
+      </button>
     </div>
   ),
 }));
@@ -201,6 +264,22 @@ const MOCK_RESULT = {
       vertex_count: 4000,
       category: 'organs',
     },
+    {
+      id: 3,
+      name: 'rib_left_1',
+      color: [241, 214, 145],
+      file: 'rib_left_1.stl',
+      vertex_count: 2500,
+      category: 'bones',
+    },
+    {
+      id: 4,
+      name: 'gluteus_maximus_left',
+      color: [198, 124, 110],
+      file: 'gluteus_maximus_left.stl',
+      vertex_count: 2200,
+      category: 'muscles',
+    },
   ],
   preload: ['spleen'],
   volume: {
@@ -212,6 +291,21 @@ const MOCK_RESULT = {
       dtype: 'int16',
       byte_order: 'little',
       high_quality: false,
+      min_hu: -1024,
+      max_hu: 1400,
+      study: {
+        patient_name: 'Doe^Jane',
+        patient_id: 'MRN-101',
+        patient_sex: 'F',
+        patient_age: '034Y',
+        study_description: 'Abdominal CT',
+        series_description: 'Portal venous phase',
+        study_date: '20260505',
+        modality: 'CT',
+        institution_name: 'Supernova Medical Center',
+        manufacturer: 'Acme Imaging',
+        slice_count: 10,
+      },
     },
     segmentation: {
       file: 'segmentation.raw',
@@ -279,29 +373,29 @@ describe('ViewerPage', () => {
   it('shows all returned organs on the initial render', async () => {
     await renderViewerPage();
 
-    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('kidney_right,spleen');
-    expect(screen.getByTestId('renderer-requested-organs')).toHaveTextContent('kidney_right,spleen');
-    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('kidney_right,spleen');
+    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
+    expect(screen.getByTestId('renderer-requested-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
+    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
   });
 
   it('temporarily reveals a hidden organ after a sidebar dwell without mutating visible selections', async () => {
     await renderViewerPage();
 
-    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('kidney_right,spleen');
+    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
 
     const sidebarHover = screen.getByTestId('sidebar-hover-kidney');
     fireEvent.mouseEnter(sidebarHover);
 
-    expect(screen.getByTestId('renderer-requested-organs')).toHaveTextContent('kidney_right,spleen');
-    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('kidney_right,spleen');
+    expect(screen.getByTestId('renderer-requested-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
+    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
 
     await act(async () => {
       vi.advanceTimersByTime(HOVER_DWELL_MS);
     });
 
     expect(screen.getByTestId('renderer-active-hover-name')).toHaveTextContent('kidney_right');
-    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('kidney_right,spleen');
-    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('kidney_right,spleen');
+    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
+    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
 
     fireEvent.mouseLeave(sidebarHover);
 
@@ -312,7 +406,7 @@ describe('ViewerPage', () => {
     });
 
     expect(screen.getByTestId('renderer-active-hover-name')).toHaveTextContent('');
-    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('kidney_right,spleen');
+    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
   });
 
   it('clears pending and active hover details when the feature is disabled', async () => {
@@ -332,8 +426,8 @@ describe('ViewerPage', () => {
 
     expect(screen.getByTestId('panel-hover-enabled')).toHaveTextContent('false');
     expect(screen.getByTestId('renderer-active-hover-name')).toHaveTextContent('');
-    expect(screen.getByTestId('renderer-requested-organs')).toHaveTextContent('kidney_right,spleen');
-    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('kidney_right,spleen');
+    expect(screen.getByTestId('renderer-requested-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
+    expect(screen.getByTestId('renderer-displayed-organs')).toHaveTextContent('gluteus_maximus_left,kidney_right,rib_left_1,spleen');
     expect(screen.queryByTestId('organ-hover-tooltip')).not.toBeInTheDocument();
   });
 
@@ -431,5 +525,91 @@ describe('ViewerPage', () => {
 
     expect(screen.getByTestId('slice-active-hover-name')).toHaveTextContent('');
     expect(screen.queryByTestId('organ-hover-tooltip')).not.toBeInTheDocument();
+  });
+
+  it('renders study metadata and lets the user collapse the metadata panel', async () => {
+    await renderViewerPage();
+
+    expect(screen.getByTestId('study-metadata-panel')).toHaveTextContent('Doe Jane');
+    expect(screen.getByTestId('study-metadata-panel')).toHaveTextContent('Abdominal CT');
+
+    fireEvent.click(screen.getByTestId('study-metadata-panel-collapse'));
+
+    expect(screen.queryByTestId('study-metadata-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('study-metadata-panel-reopen')).toBeInTheDocument();
+  });
+
+  it('applies visibility presets and updates the organ list plus rendered organs', async () => {
+    await renderViewerPage();
+
+    expect(screen.getByTestId('panel-organs')).toHaveTextContent('spleen,kidney_right,rib_left_1,gluteus_maximus_left');
+
+    fireEvent.change(screen.getByTestId('visibility-preset-select'), {
+      target: { value: 'bones' },
+    });
+    expect(screen.getByTestId('panel-organs')).toHaveTextContent('rib_left_1');
+    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('rib_left_1');
+    expect(screen.getByTestId('renderer-requested-organs')).toHaveTextContent('rib_left_1');
+
+    fireEvent.change(screen.getByTestId('visibility-preset-select'), {
+      target: { value: 'organs' },
+    });
+    expect(screen.getByTestId('panel-organs')).toHaveTextContent('spleen,kidney_right');
+    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('kidney_right,spleen');
+
+    fireEvent.change(screen.getByTestId('visibility-preset-select'), {
+      target: { value: 'muscles' },
+    });
+    expect(screen.getByTestId('panel-organs')).toHaveTextContent('gluteus_maximus_left');
+    expect(screen.getByTestId('panel-visible-organs')).toHaveTextContent('gluteus_maximus_left');
+
+    fireEvent.change(screen.getByTestId('visibility-preset-select'), {
+      target: { value: 'all' },
+    });
+    expect(screen.getByTestId('panel-organs')).toHaveTextContent('spleen,kidney_right,rib_left_1,gluteus_maximus_left');
+  });
+
+  it('collapses and reopens the reader and organ panels', async () => {
+    await renderViewerPage();
+
+    fireEvent.click(screen.getByTestId('viewer-tool-panel-collapse'));
+    expect(screen.queryByTestId('visibility-preset-select')).not.toBeInTheDocument();
+    expect(screen.getByTestId('viewer-tool-panel-reopen')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('collapse-organ-panel'));
+    expect(screen.queryByTestId('organ-panel-mock')).not.toBeInTheDocument();
+    expect(screen.getByTestId('organ-panel-reopen')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('viewer-tool-panel-reopen'));
+    expect(screen.getByTestId('visibility-preset-select')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('organ-panel-reopen'));
+    expect(screen.getByTestId('organ-panel-mock')).toBeInTheDocument();
+  });
+
+  it('switches into slice mode when slice tools are activated from model mode', async () => {
+    await renderViewerPage();
+
+    expect(screen.getByTestId('viewer-controls-mock')).toHaveAttribute('data-view-mode', 'model');
+
+    fireEvent.click(screen.getByTestId('viewer-tool-distance'));
+
+    expect(screen.getByTestId('viewer-controls-mock')).toHaveAttribute('data-view-mode', 'slice');
+    expect(screen.getByTestId('slice-interaction-mode')).toHaveTextContent('distance');
+
+    fireEvent.click(screen.getByTestId('slice-report-distance'));
+    expect(screen.getByText('16.4 mm')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('viewer-tool-probe'));
+    expect(screen.getByTestId('slice-interaction-mode')).toHaveTextContent('probe');
+
+    fireEvent.click(screen.getByTestId('slice-report-probe'));
+    expect(screen.getByText('72 HU')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('anatomy-labels-toggle'));
+    expect(screen.getByTestId('slice-labels-enabled')).toHaveTextContent('false');
+
+    fireEvent.click(screen.getByTestId('viewer-tool-navigate'));
+    expect(screen.getByTestId('slice-interaction-mode')).toHaveTextContent('navigate');
   });
 });

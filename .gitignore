@@ -4,3 +4,4 @@ test_files
 **/.pytest_cache
 **/venv
 AWS_EC2_CHECKLIST.md
+.venv/
