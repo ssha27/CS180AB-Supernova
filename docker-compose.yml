@@ -1,0 +1,49 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+    networks:
+      - supernova
+  api-gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - DICOM_SERVICE_URL=http://dicom-service:5000
+      - UPLOAD_DIR=/app/uploads
+    depends_on:
+      - dicom-service
+    volumes:
+      - upload-data:/app/uploads
+    networks:
+      - supernova
+  dicom-service:
+    build:
+      context: ./backend/dicom-service
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - DICOM_PORT=5000
+      - TOTALSEG_DEVICE=auto
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      - upload-data:/app/uploads
+    networks:
+      - supernova
+
+volumes:
+  upload-data:
+    driver: local
+
+networks:
+  supernova:
+    driver: bridge
