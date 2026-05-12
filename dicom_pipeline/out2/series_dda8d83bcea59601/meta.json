@@ -1,0 +1,42 @@
+{
+  "Modality": "CT",
+  "TransferSyntaxUID": "1.2.840.10008.1.2.1",
+  "PhotometricInterpretation": "MONOCHROME2",
+  "Rows": 512,
+  "Columns": 512,
+  "NumSlicesDecoded": 85,
+  "NumSlicesInSeries": 85,
+  "DecodeErrors": 0,
+  "PixelSpacing_rc_mm": [
+    0.7421875,
+    0.7421875
+  ],
+  "SliceSpacing_mm": 5.0,
+  "ImageOrientationPatient": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+  ],
+  "ImagePositionPatient_first": [
+    -185.62890625,
+    -342.62890625,
+    -734.5
+  ],
+  "StudyInstanceUID_hash": "588a9243ba69458a",
+  "SeriesInstanceUID_hash": "dda8d83bcea59601",
+  "SOPInstanceUID_hash": "790db645e52d4762",
+  "FrameOfReferenceUID_hash": "330fdcccc09bafb9",
+  "tensor_shape": [
+    1,
+    85,
+    512,
+    512
+  ],
+  "tensor_dtype": "float32",
+  "tensor_min": 0.0,
+  "tensor_max": 1.0,
+  "tensor_mean": 0.18341681361198425
+}

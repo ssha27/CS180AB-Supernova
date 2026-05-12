@@ -1,0 +1,107 @@
+.viewer-screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  background: var(--bg-base);
+}
+
+.vtk-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Subtle vignette overlay for clinical depth */
+.viewer-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.25) 100%);
+  z-index: 1;
+}
+
+/* ===== Loading / error overlay ===== */
+.viewer-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 50%, var(--accent-glow), transparent 70%),
+    var(--bg-base);
+  z-index: 10;
+  padding: 2rem;
+}
+
+.viewer-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1rem;
+  padding: 2.5rem 3rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  max-width: 460px;
+  position: relative;
+  overflow: hidden;
+}
+
+.viewer-overlay-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+.viewer-overlay-loader {
+  width: 42px;
+  height: 42px;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.viewer-overlay-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: var(--accent-glow);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+
+.viewer-overlay-icon.error {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--status-error);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.viewer-overlay-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.viewer-overlay-text {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 360px;
+}

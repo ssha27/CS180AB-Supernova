@@ -1,0 +1,27 @@
+{
+    "name": "supernova-api-gateway",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "scripts": {
+        "dev": "node --watch src/index.js",
+        "start": "node src/index.js",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage"
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "express": "^4.21.1",
+        "form-data": "^4.0.0",
+        "multer": "^1.4.5-lts.1",
+        "node-fetch": "^3.3.2",
+        "pg": "^8.13.0",
+        "uuid": "^11.0.3",
+        "ws": "^8.18.0"
+    },
+    "devDependencies": {
+        "supertest": "^7.0.0",
+        "vitest": "^2.1.8"
+    }
+}

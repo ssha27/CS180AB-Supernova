@@ -1,0 +1,15 @@
+{
+  "note": "Model-ready index of de-identified ingested DICOM series. Add labels later using series_id,label CSV.",
+  "series": [
+    {
+      "series_id": "series_dda8d83bcea59601",
+      "image_path": "/Users/panda/Desktop/CodingProjects/CS180AB-Supernova/dicom_pipeline/out2/series_dda8d83bcea59601/image.npy",
+      "meta_path": "/Users/panda/Desktop/CodingProjects/CS180AB-Supernova/dicom_pipeline/out2/series_dda8d83bcea59601/meta.json",
+      "preview_path": "/Users/panda/Desktop/CodingProjects/CS180AB-Supernova/dicom_pipeline/out2/series_dda8d83bcea59601/preview.png",
+      "modality": "CT",
+      "num_slices_decoded": 85,
+      "rows": 512,
+      "columns": 512
+    }
+  ]
+}

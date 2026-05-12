@@ -11,20 +11,27 @@ node_modules/
 __pycache__/
 *.pyc
 .venv/
+.venv2/
 venv/
+*.egg-info/
 
 # Build artifacts
 frontend/dist/
-*.egg-info/
 
 # Environment
 .env
 .env.local
 
-# Uploads (runtime data)
+# Runtime/generated data
 backend/uploads/
-test
-test_files
+uploads/
+dicom_pipeline/out/
+dicom_pipeline/models/
+DB_Prototype/.venv/
+
+# Test/generated files
+test/
+test_files/
 
 # OS
 .DS_Store
@@ -33,4 +40,4 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
-*.swpdicom_pipeline/out/
+*.swp
