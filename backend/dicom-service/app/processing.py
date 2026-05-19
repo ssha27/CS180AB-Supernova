@@ -16,6 +16,9 @@ import struct
 import traceback
 import zipfile
 
+from pathlib import Path
+import sys
+
 import numpy as np
 import pydicom
 
@@ -23,6 +26,13 @@ from .anonymize import strip_pii
 from .job_store import set_job_status, update_job_progress
 from .segmentation import run_segmentation
 from .organ_meshes import generate_organ_meshes
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from dicom_pipeline.ingest import ingest_path
+from dicom_pipeline.model import load_checkpoint, predict_probability
 
 # Minimum number of slices required for 3D reconstruction
 MIN_SLICES_FOR_3D = 10
@@ -71,6 +81,61 @@ def process_dicom_job(job_id: str, input_dir: str) -> None:
         # Step 6: Stack slices into 3D volume
         volume, spacing, origin = _stack_slices(dcm_datasets)
         update_job_progress(job_id, 45)
+
+                # Step 6.5: Run ML ingestion + placeholder prediction
+        prediction_result = None
+
+        try:
+            ml_output_dir = os.path.join(input_dir, "ml_pipeline")
+
+            records = ingest_path(
+                input_path=Path(input_dir),
+                output_root=Path(ml_output_dir),
+                process_all_series=True,
+            )
+
+            model_path = ROOT_DIR / "dicom_pipeline" / "models" / "oral_ct_cnn.pt"
+
+            if model_path.exists() and records:
+                model, ckpt = load_checkpoint(model_path, device="cpu")
+                target_size = int(ckpt.get("target_size", 224))
+
+                probs = []
+
+                for r in records:
+                    prob = predict_probability(
+                        model,
+                        Path(r.image_path),
+                        target_size=target_size,
+                        device="cpu",
+                    )
+
+                    probs.append({
+                        "series_id": r.series_id,
+                        "probability": float(prob),
+                        "image_path": str(r.image_path),
+                    })
+
+                prediction_result = {
+                    "available": True,
+                    "predictions": probs,
+                    "warning": "Placeholder model is not clinically valid.",
+                }
+
+            else:
+                prediction_result = {
+                    "available": False,
+                    "warning": "No trained model checkpoint found.",
+                }
+
+        except Exception as ml_err:
+            import traceback as tb
+            tb.print_exc()
+
+            prediction_result = {
+                "available": False,
+                "error": str(ml_err),
+            }
 
         # Step 7: Generate volume rendering data
         _save_volume_data(input_dir, volume, spacing, origin)
@@ -128,6 +193,7 @@ def process_dicom_job(job_id: str, input_dir: str) -> None:
                 "metadata": metadata,
                 "segmentsAvailable": segments_available,
                 "segmentCount": segment_count,
+                "mlPrediction": prediction_result,
             },
         })
 
