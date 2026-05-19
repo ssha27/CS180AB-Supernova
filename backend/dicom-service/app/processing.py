@@ -28,8 +28,10 @@ from .segmentation import run_segmentation
 from .organ_meshes import generate_organ_meshes
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+DICOM_PIPELINE_DIR = ROOT_DIR / "dicom_pipeline"
+
+if str(DICOM_PIPELINE_DIR) not in sys.path:
+    sys.path.append(str(DICOM_PIPELINE_DIR))
 
 from dicom_pipeline.ingest import ingest_path
 from dicom_pipeline.model import load_checkpoint, predict_probability
