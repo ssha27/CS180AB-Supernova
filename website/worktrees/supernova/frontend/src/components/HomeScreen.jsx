@@ -70,7 +70,7 @@ export default function HomeScreen() {
               and analysis for <span className="hero-accent">DICOM imaging.</span>
             </h1>
             <p className="hero-subtitle">
-              An end-to-end clinical research platform for ingesting DICOM studies,
+              A clinical research platform for ingesting DICOM studies,
               reconstructing 3D volumes, and rendering anatomical surfaces with
               automated organ segmentation.
             </p>
@@ -169,13 +169,13 @@ export default function HomeScreen() {
             <CapabilityCard
               icon={<IconVolume />}
               title="3D Volume Rendering"
-              description="GPU-accelerated ray-cast volume rendering with Hounsfield-unit-aware tissue presets for skin, muscle, and bone visualization."
+              description="Interactive 3D viewing of scans with tissue presets to highlight skin, muscle, or bone."
               tags={['VTK.js', 'WebGL']}
             />
             <CapabilityCard
               icon={<IconSurface />}
               title="Surface Reconstruction"
-              description="Marching Cubes isosurface extraction with mesh smoothing and decimation for interactive 3D anatomical surface viewing."
+              description="Turns 2D slices into a smooth 3D model of the body that you can rotate and explore."
               tags={['Marching Cubes', 'VTP']}
             />
             <CapabilityCard
