@@ -4,6 +4,10 @@ import {
   buildVisibleOrganNameSet,
   DEFAULT_VISIBILITY_PRESET_ID,
   filterOrgansByVisibilityPreset,
+  formatIntensityRange,
+  getDefaultSliceWindow,
+  getIntensityRangeLabel,
+  getIntensityUnit,
   getVisibilityPresetById,
 } from '../utils/viewerTools';
 
@@ -43,5 +47,21 @@ describe('viewerTools', () => {
 
   it('builds a visible organ set from the preset-filtered organs', () => {
     expect(Array.from(buildVisibleOrganNameSet(MOCK_ORGANS, 'bones'))).toEqual(['rib_left_1']);
+  });
+
+  it('uses a generic intensity unit for MRI studies', () => {
+    expect(getIntensityUnit({ study: { modality: 'MR' }, intensity_unit: 'signal' })).toBe('signal');
+  });
+
+  it('formats MRI intensity ranges without HU wording', () => {
+    expect(getIntensityRangeLabel({ study: { modality: 'MR' }, intensity_unit: 'signal' })).toBe('Intensity Range');
+    expect(formatIntensityRange({ min_value: 120, max_value: 480 })).toBe('120 to 480');
+  });
+
+  it('derives a full-range slice window for MRI studies', () => {
+    expect(getDefaultSliceWindow({ study: { modality: 'MR' }, min_value: 100, max_value: 300 })).toEqual({
+      center: 200,
+      width: 200,
+    });
   });
 });

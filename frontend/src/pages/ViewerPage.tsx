@@ -16,8 +16,6 @@ import {
 } from '../utils/hoverDetails';
 import {
   createDefaultSliceCursor,
-  DEFAULT_WINDOW_PRESET_ID,
-  getWindowPresetById,
   type SliceCursor,
 } from '../utils/sliceUtils';
 import type {
@@ -30,6 +28,9 @@ import {
   buildVisibleOrganNameSet,
   DEFAULT_VISIBILITY_PRESET_ID,
   filterOrgansByVisibilityPreset,
+  getDefaultSliceWindow,
+  getIntensityUnit,
+  getProbeLabel,
 } from '../utils/viewerTools';
 
 const HOVER_EXIT_GRACE_MS = 240;
@@ -414,8 +415,10 @@ export default function ViewerPage() {
   }
 
   const focusedHover = pinnedHover ?? activeHover;
-  const activeWindowPreset = getWindowPresetById(DEFAULT_WINDOW_PRESET_ID);
   const studyMetadataAsset = result?.volume?.intensity;
+  const activeWindowPreset = getDefaultSliceWindow(studyMetadataAsset);
+  const intensityUnit = getIntensityUnit(studyMetadataAsset);
+  const probeLabel = getProbeLabel(studyMetadataAsset);
   const panelOrgans = result ? filterOrgansByVisibilityPreset(result.organs, visibilityPresetId) : [];
 
   const displayedOrgans = new Set(visibleOrgans);
@@ -501,6 +504,8 @@ export default function ViewerPage() {
             <ViewerToolPanel
               viewMode={viewMode}
               sliceAvailable={sliceAvailable}
+              intensityUnit={intensityUnit}
+              probeLabel={probeLabel}
               visibilityPresetId={visibilityPresetId}
               anatomyLabelsEnabled={anatomyLabelsEnabled}
               interactionMode={interactionMode}

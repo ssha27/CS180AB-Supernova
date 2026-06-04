@@ -4,8 +4,9 @@ uvicorn[standard]>=0.30.6
 python-multipart>=0.0.9
 websockets>=12.0
 
-# Medical imaging & segmentation
-TotalSegmentator>=2.13.0
+# Medical imaging & segmentation support
+# The model runtimes are installed in isolated environments because
+# TotalSegmentator and MRSegmentator currently require incompatible nnU-Net versions.
 nibabel>=5.2.1
 pydicom>=2.4.4
 

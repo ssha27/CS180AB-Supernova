@@ -258,4 +258,71 @@ describe('SliceViewport', () => {
     );
     expect(screen.getByTestId('slice-distance-readout-axial')).toHaveTextContent('24.0 mm');
   });
+
+  it('shows signal units in the probe overlay for MRI volumes', async () => {
+    render(
+      <SliceViewport
+        jobId="job-123"
+        volume={{
+          intensity: {
+            file: 'volume.raw',
+            dimensions: TEST_DIMENSIONS,
+            spacing: TEST_SPACING,
+            origin: [0, 0, 0],
+            dtype: 'int16',
+            byte_order: 'little',
+            high_quality: false,
+            min_value: 100,
+            max_value: 300,
+            intensity_unit: 'signal',
+            study: {
+              modality: 'MR',
+            },
+          },
+          segmentation: {
+            file: 'segmentation.raw',
+            dimensions: TEST_DIMENSIONS,
+            spacing: TEST_SPACING,
+            origin: [0, 0, 0],
+            dtype: 'uint16',
+            byte_order: 'little',
+            high_quality: false,
+          },
+        }}
+        organs={[
+          {
+            id: 2,
+            name: 'kidney_right',
+            color: [185, 102, 83],
+            file: 'kidney_right.stl',
+            vertex_count: 4000,
+            category: 'organs',
+          },
+        ]}
+        requestedOrgans={new Set()}
+        displayedOrgans={new Set(['kidney_right'])}
+        activeHoverName={null}
+        hoverDetailsEnabled={true}
+        cursor={{ z: 0, y: 0, x: 0 }}
+        windowCenter={200}
+        windowWidth={200}
+        anatomyLabelsEnabled={true}
+        interactionMode="probe"
+        onCursorChange={vi.fn()}
+        onHoverCandidateChange={vi.fn()}
+        onDistanceMeasurementChange={vi.fn()}
+        onProbeChange={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    fireEvent.pointerDown(screen.getByTestId('slice-pane-axial'), { clientX: 4, clientY: 4 });
+
+    expect(screen.getByTestId('slice-probe-readout-axial')).toHaveTextContent('120 signal');
+  });
 });

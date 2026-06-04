@@ -1,5 +1,12 @@
 import type { VolumeAsset } from '../utils/api';
-import { formatPatientName, formatStudyDate } from '../utils/viewerTools';
+import {
+  formatIntensityRange,
+  formatPatientName,
+  formatStudyDate,
+  getIntensityRangeLabel,
+  getModalityLabel,
+  getStudyOverviewTitle,
+} from '../utils/viewerTools';
 
 interface StudyMetadataPanelProps {
   asset?: VolumeAsset;
@@ -29,7 +36,7 @@ export default function StudyMetadataPanel({ asset, onCollapse }: StudyMetadataP
             Study Metadata
           </p>
           <p className="mt-1 text-sm font-semibold text-white">
-            {study?.study_description ?? study?.series_description ?? 'CT Study Overview'}
+            {getStudyOverviewTitle(asset)}
           </p>
         </div>
         <button
@@ -47,14 +54,14 @@ export default function StudyMetadataPanel({ asset, onCollapse }: StudyMetadataP
         <MetadataRow label="Patient ID" value={study?.patient_id ?? 'Unavailable'} />
         <MetadataRow label="Sex / Age" value={`${study?.patient_sex ?? 'N/A'} / ${study?.patient_age ?? 'N/A'}`} />
         <MetadataRow label="Study Date" value={formatStudyDate(study?.study_date)} />
-        <MetadataRow label="Modality" value={study?.modality ?? 'CT'} />
+        <MetadataRow label="Modality" value={getModalityLabel(asset)} />
         <MetadataRow label="Institution" value={study?.institution_name ?? 'Unavailable'} />
         <MetadataRow label="Manufacturer" value={study?.manufacturer ?? 'Unavailable'} />
         <MetadataRow label="Series" value={study?.series_description ?? 'Unavailable'} />
         <MetadataRow label="Slices" value={study?.slice_count ?? asset?.dimensions[0] ?? 'Unknown'} />
         <MetadataRow label="Volume" value={`${asset?.dimensions.join(' x ') ?? 'Unknown'}`} />
         <MetadataRow label="Spacing" value={asset ? asset.spacing.map((value) => value.toFixed(2)).join(' / ') + ' mm' : 'Unknown'} />
-        <MetadataRow label="HU Range" value={asset?.min_hu !== undefined && asset?.max_hu !== undefined ? `${asset.min_hu} to ${asset.max_hu}` : 'Unknown'} />
+        <MetadataRow label={getIntensityRangeLabel(asset)} value={formatIntensityRange(asset)} />
       </dl>
     </div>
   );

@@ -35,6 +35,7 @@ def _extract_study_metadata(ds: pydicom.dataset.FileDataset, slice_count: int) -
         "patient_id": _clean_dicom_string(getattr(ds, "PatientID", None)),
         "patient_sex": _clean_dicom_string(getattr(ds, "PatientSex", None)),
         "patient_age": _clean_dicom_string(getattr(ds, "PatientAge", None)),
+        "body_part_examined": _clean_dicom_string(getattr(ds, "BodyPartExamined", None)),
         "study_description": _clean_dicom_string(getattr(ds, "StudyDescription", None)),
         "series_description": _clean_dicom_string(getattr(ds, "SeriesDescription", None)),
         "study_date": _clean_dicom_string(getattr(ds, "StudyDate", None)),
@@ -95,12 +96,32 @@ def convert_nifti_affine_to_lps(affine: np.ndarray) -> np.ndarray:
     return RAS_TO_LPS @ np.asarray(affine, dtype=np.float64)
 
 
+def convert_lps_affine_to_ras(affine: np.ndarray) -> np.ndarray:
+    """Convert a DICOM-style LPS affine into a nibabel-compatible RAS affine."""
+    return RAS_TO_LPS @ np.asarray(affine, dtype=np.float64)
+
+
+def _get_intensity_metadata(volume: np.ndarray, study_metadata: dict) -> dict:
+    modality = str(study_metadata.get("modality") or "").strip().upper()
+    metadata = {
+        "min_value": int(volume.min()),
+        "max_value": int(volume.max()),
+        "intensity_unit": "HU" if modality == "CT" else "signal",
+    }
+
+    if modality == "CT":
+        metadata["min_hu"] = metadata["min_value"]
+        metadata["max_hu"] = metadata["max_value"]
+
+    return metadata
+
+
 def load_dicom_series(dicom_dir: str) -> tuple[np.ndarray, dict]:
     """Load a DICOM series from a directory, returning the 3D volume and metadata.
 
     Returns:
-        (volume_data, metadata_dict) where volume_data is HU-valued int16 array
-        and metadata has spacing, orientation, origin, affine, and value range.
+        (volume_data, metadata_dict) where volume_data is an int16 intensity array
+        and metadata has spacing, orientation, origin, affine, and intensity range.
     """
     dcm_files = sorted(Path(dicom_dir).glob("*.dcm"))
     if not dcm_files:
@@ -163,6 +184,8 @@ def load_dicom_series(dicom_dir: str) -> tuple[np.ndarray, dict]:
         slice_dir = _normalize_vector(np.cross(row_dir, column_dir))
         slice_thickness = float(getattr(slices[0], "SliceThickness", 1.0))
 
+    study_metadata = _extract_study_metadata(slices[0], len(slices))
+
     metadata = {
         "dimensions": list(volume.shape),
         "spacing": [slice_thickness, pixel_spacing[0], pixel_spacing[1]],
@@ -184,12 +207,21 @@ def load_dicom_series(dicom_dir: str) -> tuple[np.ndarray, dict]:
             }
         ).tolist(),
         "dtype": "int16",
-        "min_hu": int(volume.min()),
-        "max_hu": int(volume.max()),
-        "study": _extract_study_metadata(slices[0], len(slices)),
+        "study": study_metadata,
     }
+    metadata.update(_get_intensity_metadata(volume, study_metadata))
 
     return volume, metadata
+
+
+def export_dicom_series_to_nifti(dicom_dir: str, output_path: str) -> dict:
+    """Convert a DICOM series into a NIfTI volume for downstream model inference."""
+    volume, metadata = load_dicom_series(dicom_dir)
+    affine_ras = convert_lps_affine_to_ras(build_volume_affine(metadata))
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    nib.save(nib.Nifti1Image(volume.astype(np.int16), affine_ras), output_path)
+    return metadata
 
 
 def resample_volume(volume: np.ndarray, scale_factors: list[float], order: int) -> np.ndarray:

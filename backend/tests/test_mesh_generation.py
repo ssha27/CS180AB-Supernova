@@ -205,3 +205,28 @@ class TestGenerateAllMeshes:
             organs = generate_all_meshes(seg_path, output_dir)
 
             assert len(organs) == 0
+
+    def test_generates_meshes_for_mrsegmentator_schema(self):
+        data = np.zeros((64, 64, 64), dtype=np.int16)
+        zz, yy, xx = np.mgrid[:64, :64, :64]
+
+        kidney = np.sqrt((zz - 20)**2 + (yy - 32)**2 + (xx - 32)**2)
+        liver = np.sqrt((zz - 44)**2 + (yy - 32)**2 + (xx - 32)**2)
+        data[kidney <= 10] = 2
+        data[liver <= 10] = 5
+        img = nib.Nifti1Image(data, np.eye(4))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            seg_path = os.path.join(tmpdir, "seg.nii.gz")
+            nib.save(img, seg_path)
+
+            output_dir = os.path.join(tmpdir, "meshes")
+            organs = generate_all_meshes(seg_path, output_dir, label_schema="mrsegmentator")
+
+            names = {organ.name for organ in organs}
+            assert names == {"kidney_right", "liver"}
+
+            with open(os.path.join(output_dir, "metadata.json")) as handle:
+                metadata = json.load(handle)
+
+            assert metadata["label_schema"] == "mrsegmentator"

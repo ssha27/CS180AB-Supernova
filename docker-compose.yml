@@ -1,6 +1,11 @@
 services:
   supernova:
-    build: .
+    build:
+      context: .
+      args:
+        SUPERNOVA_TORCH_INDEX_URL: ${SUPERNOVA_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+        SUPERNOVA_TORCH_VERSION: ${SUPERNOVA_TORCH_VERSION:-2.3.1}
+        SUPERNOVA_TORCHVISION_VERSION: ${SUPERNOVA_TORCHVISION_VERSION:-0.18.1}
     ports:
       - "8000:8000"
     shm_size: '2g'

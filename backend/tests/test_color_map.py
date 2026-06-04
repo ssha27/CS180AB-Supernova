@@ -3,10 +3,12 @@ import pytest
 from app.color_map import (
     ORGAN_COLOR_MAP,
     ORGAN_CATEGORIES,
+    MRSEGMENTATOR_COLOR_MAP,
     PRELOAD_ORGANS,
     get_organ_info,
     get_organ_color_normalized,
     get_all_organ_names,
+    get_label_schema_for_backend,
     get_organs_by_category,
     is_preload_organ,
 )
@@ -140,3 +142,24 @@ class TestIsPreloadOrgan:
 
     def test_preload_set_not_empty(self):
         assert len(PRELOAD_ORGANS) > 0
+
+
+class TestMrSegmentatorColorMap:
+    def test_has_40_entries(self):
+        assert len(MRSEGMENTATOR_COLOR_MAP) == 40
+
+    def test_uses_canonical_names_for_shared_organs(self):
+        assert MRSEGMENTATOR_COLOR_MAP[2]["name"] == "kidney_right"
+        assert MRSEGMENTATOR_COLOR_MAP[3]["name"] == "kidney_left"
+        assert MRSEGMENTATOR_COLOR_MAP[13]["name"] == "aorta"
+
+    def test_schema_specific_lookup_returns_mri_entry(self):
+        info = get_organ_info(25, label_schema="mrsegmentator")
+
+        assert info is not None
+        assert info["name"] == "spine"
+        assert info["category"] == "bones"
+
+    def test_backend_schema_resolution(self):
+        assert get_label_schema_for_backend("totalsegmentator") == "totalsegmentator"
+        assert get_label_schema_for_backend("mrsegmentator") == "mrsegmentator"

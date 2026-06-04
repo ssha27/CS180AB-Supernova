@@ -10,7 +10,7 @@ from scipy import ndimage
 import trimesh
 import fast_simplification
 
-from app.color_map import ORGAN_COLOR_MAP, get_organ_color_normalized, is_preload_organ
+from app.color_map import DEFAULT_LABEL_SCHEMA, get_label_color_map, is_preload_organ
 from app.models import OrganInfo
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,7 @@ def generate_all_meshes(
     output_dir: str,
     decimate_target: int = DEFAULT_DECIMATE_TARGET,
     progress_callback=None,
+    label_schema: str = DEFAULT_LABEL_SCHEMA,
 ) -> list[OrganInfo]:
     """Generate STL mesh files for all organs found in a multilabel NIfTI segmentation.
 
@@ -145,16 +146,17 @@ def generate_all_meshes(
     seg_data = np.asarray(seg_img.dataobj)
     affine = seg_img.affine
     voxel_spacing = tuple(float(s) for s in seg_img.header.get_zooms()[:3])
+    label_map = get_label_color_map(label_schema)
 
     # Find which labels are actually present
     unique_labels = set(np.unique(seg_data).astype(int)) - {0}
-    valid_labels = sorted(unique_labels & set(ORGAN_COLOR_MAP.keys()))
+    valid_labels = sorted(unique_labels & set(label_map.keys()))
 
     total = len(valid_labels)
     organs: list[OrganInfo] = []
 
     for i, label_id in enumerate(valid_labels):
-        organ_info = ORGAN_COLOR_MAP[label_id]
+        organ_info = label_map[label_id]
         organ_name = organ_info["name"]
 
         if progress_callback:
@@ -183,7 +185,8 @@ def generate_all_meshes(
     # Write metadata
     metadata = {
         "organs": [o.model_dump() for o in organs],
-        "preload": [o.name for o in organs if is_preload_organ(o.name)],
+        "preload": [o.name for o in organs if is_preload_organ(o.name, label_schema=label_schema)],
+        "label_schema": label_schema,
     }
     with open(os.path.join(output_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)

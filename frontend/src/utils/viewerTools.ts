@@ -1,5 +1,6 @@
-import type { OrganInfo } from './api';
+import type { OrganInfo, VolumeAsset } from './api';
 import type { SlicePlane, SlicePoint } from './sliceUtils';
+import { DEFAULT_WINDOW_PRESET_ID, getWindowPresetById } from './sliceUtils';
 
 export type VisibilityPresetId = 'all' | 'bones' | 'organs' | 'muscles';
 
@@ -56,6 +57,11 @@ export interface SliceProbeSummary {
   organName: string | null;
 }
 
+function normalizeModality(modality: string | null | undefined): string {
+  const value = (modality ?? '').trim().toUpperCase();
+  return value === 'MRI' ? 'MR' : value;
+}
+
 export function getVisibilityPresetById(id: string): VisibilityPreset {
   return VISIBILITY_PRESETS.find((preset) => preset.id === id) ?? VISIBILITY_PRESETS[0];
 }
@@ -102,4 +108,63 @@ export function formatPatientName(raw: string | null | undefined): string {
     .split('^')
     .filter(Boolean)
     .join(' ');
+}
+
+export function getIntensityUnit(asset?: Pick<VolumeAsset, 'study' | 'intensity_unit'>): string {
+  if (asset?.intensity_unit) {
+    return asset.intensity_unit;
+  }
+
+  return normalizeModality(asset?.study?.modality) === 'MR' ? 'signal' : 'HU';
+}
+
+export function getProbeLabel(asset?: Pick<VolumeAsset, 'study' | 'intensity_unit'>): string {
+  return getIntensityUnit(asset) === 'HU' ? 'HU Probe' : 'Signal Probe';
+}
+
+export function getIntensityRangeLabel(asset?: Pick<VolumeAsset, 'study' | 'intensity_unit'>): string {
+  return getIntensityUnit(asset) === 'HU' ? 'HU Range' : 'Intensity Range';
+}
+
+export function formatIntensityRange(
+  asset?: Pick<VolumeAsset, 'min_value' | 'max_value' | 'min_hu' | 'max_hu'>,
+): string {
+  const minValue = asset?.min_value ?? asset?.min_hu;
+  const maxValue = asset?.max_value ?? asset?.max_hu;
+
+  if (minValue === undefined || maxValue === undefined) {
+    return 'Unknown';
+  }
+
+  return `${minValue} to ${maxValue}`;
+}
+
+export function getStudyOverviewTitle(asset?: Pick<VolumeAsset, 'study'>): string {
+  return asset?.study?.study_description ?? asset?.study?.series_description ?? 'Study Overview';
+}
+
+export function getModalityLabel(asset?: Pick<VolumeAsset, 'study'>): string {
+  return asset?.study?.modality ?? 'Unavailable';
+}
+
+export function getDefaultSliceWindow(
+  asset?: Pick<VolumeAsset, 'study' | 'min_value' | 'max_value' | 'min_hu' | 'max_hu'>,
+): { center: number; width: number } {
+  const ctDefault = getWindowPresetById(DEFAULT_WINDOW_PRESET_ID);
+  const modality = normalizeModality(asset?.study?.modality);
+  const minValue = asset?.min_value ?? asset?.min_hu;
+  const maxValue = asset?.max_value ?? asset?.max_hu;
+
+  if (modality !== 'MR' || minValue === undefined || maxValue === undefined) {
+    return { center: ctDefault.center, width: ctDefault.width };
+  }
+
+  if (maxValue <= minValue) {
+    return { center: minValue, width: 1 };
+  }
+
+  return {
+    center: (minValue + maxValue) / 2,
+    width: Math.max(maxValue - minValue, 1),
+  };
 }

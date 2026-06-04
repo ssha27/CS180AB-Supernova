@@ -7,8 +7,11 @@ import logging
 import zipfile
 import tempfile
 import json
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -20,8 +23,9 @@ from app.models import (
     ProgressUpdate,
 )
 from app.websocket import manager
+from app.color_map import get_label_schema_for_backend
 from app.mesh_generation import generate_all_meshes
-from app.volume_export import export_volume_bundle, load_dicom_series
+from app.volume_export import export_dicom_series_to_nifti, export_volume_bundle, load_dicom_series
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +37,56 @@ _pipeline_lock = asyncio.Lock()
 
 # Base directory for processing outputs
 OUTPUT_BASE_ENV_VAR = "SUPERNOVA_OUTPUT_DIR"
+TOTALSEGMENTATOR_COMMAND_ENV_VAR = "SUPERNOVA_TOTALSEGMENTATOR_COMMAND"
+MRSEGMENTATOR_COMMAND_ENV_VAR = "SUPERNOVA_MRSEGMENTATOR_COMMAND"
 OUTPUT_BASE = os.path.join(tempfile.gettempdir(), "supernova_jobs")
 RECENT_UPLOADS_PATH = os.path.join(OUTPUT_BASE, "recent_uploads.json")
 RECENT_UPLOAD_LIMIT = 5
 DEFAULT_USER_ID = "local-user"
+SUPPORTED_TORSO_KEYWORDS = {
+    "abdomen",
+    "abdominal",
+    "pelvis",
+    "pelvic",
+    "chest",
+    "thorax",
+    "thoracic",
+    "torso",
+}
+UNSUPPORTED_MRI_SEQUENCE_KEYWORDS = {
+    "dynamic",
+    "dyn",
+    "dce",
+    "perfusion",
+    "diffusion",
+    "diff",
+    "adc",
+    "localizer",
+    "survey",
+}
+UNSUPPORTED_MRI_KEYWORDS = {
+    "brain",
+    "head",
+    "skull",
+    "spine",
+    "cervical",
+    "knee",
+    "shoulder",
+    "elbow",
+    "wrist",
+    "hand",
+    "ankle",
+    "foot",
+}
+MIN_SUPPORTED_MRI_Z_COVERAGE_MM = 96.0
+MIN_SUPPORTED_MRI_SLICE_COUNT = 24
+
+
+@dataclass(frozen=True)
+class StudyProfile:
+    modality: str
+    is_supported: bool
+    reason: str = ""
 
 
 @dataclass
@@ -50,6 +100,197 @@ class JobState:
     start_time: float = field(default_factory=time.time)
     error: str | None = None
     zip_path: str | None = None
+
+
+def _normalize_study_text(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _get_numeric_sequence(values: object) -> tuple[float, ...]:
+    if not isinstance(values, (list, tuple)):
+        return ()
+
+    numeric_values: list[float] = []
+    for value in values:
+        try:
+            numeric_values.append(float(value))
+        except (TypeError, ValueError):
+            return ()
+    return tuple(numeric_values)
+
+
+def _estimate_mri_z_coverage_mm(metadata: dict | None) -> float | None:
+    if not isinstance(metadata, dict):
+        return None
+
+    spacing = _get_numeric_sequence(metadata.get("spacing"))
+    dimensions = _get_numeric_sequence(metadata.get("dimensions"))
+    study = metadata.get("study", {}) if isinstance(metadata.get("study"), dict) else {}
+
+    slice_spacing = spacing[0] if spacing else None
+    slice_count = None
+
+    if dimensions:
+        slice_count = max(int(round(dimensions[0])), 0)
+    else:
+        try:
+            slice_count = max(int(study.get("slice_count")), 0)
+        except (TypeError, ValueError):
+            slice_count = None
+
+    if slice_spacing is None or slice_count is None or slice_count <= 0:
+        return None
+
+    return slice_spacing * slice_count
+
+
+def profile_study(metadata: dict | None) -> StudyProfile:
+    study = metadata.get("study", {}) if isinstance(metadata, dict) else {}
+    modality = _normalize_study_text(study.get("modality")).upper()
+
+    if modality == "CT":
+        return StudyProfile(modality="CT", is_supported=True)
+
+    if modality not in {"MR", "MRI"}:
+        return StudyProfile(
+            modality=modality or "UNKNOWN",
+            is_supported=False,
+            reason="Unsupported imaging modality for segmentation.",
+        )
+
+    text_parts = [
+        _normalize_study_text(study.get("body_part_examined")),
+        _normalize_study_text(study.get("study_description")),
+        _normalize_study_text(study.get("series_description")),
+    ]
+    combined_text = " ".join(part for part in text_parts if part)
+
+    if any(keyword in combined_text for keyword in SUPPORTED_TORSO_KEYWORDS):
+        is_torso_series = True
+    else:
+        is_torso_series = False
+
+    if any(keyword in combined_text for keyword in UNSUPPORTED_MRI_KEYWORDS):
+        return StudyProfile(
+            modality="MR",
+            is_supported=False,
+            reason="MRI uploads are currently supported only for torso studies.",
+        )
+
+    if any(keyword in combined_text for keyword in UNSUPPORTED_MRI_SEQUENCE_KEYWORDS):
+        return StudyProfile(
+            modality="MR",
+            is_supported=False,
+            reason="MRI uploads currently support only anatomical torso series; dynamic or derived series are not supported.",
+        )
+
+    z_coverage_mm = _estimate_mri_z_coverage_mm(metadata)
+    try:
+        slice_count = int(study.get("slice_count"))
+    except (TypeError, ValueError):
+        dimensions = _get_numeric_sequence(metadata.get("dimensions")) if isinstance(metadata, dict) else ()
+        slice_count = int(round(dimensions[0])) if dimensions else 0
+
+    if z_coverage_mm is not None and z_coverage_mm < MIN_SUPPORTED_MRI_Z_COVERAGE_MM:
+        return StudyProfile(
+            modality="MR",
+            is_supported=False,
+            reason="MRI uploads currently require anatomical torso coverage; limited-field-of-view series do not segment reliably.",
+        )
+
+    if slice_count and slice_count < MIN_SUPPORTED_MRI_SLICE_COUNT:
+        return StudyProfile(
+            modality="MR",
+            is_supported=False,
+            reason="MRI uploads currently require anatomical torso coverage; limited-field-of-view series do not segment reliably.",
+        )
+
+    if is_torso_series:
+        return StudyProfile(modality="MR", is_supported=True)
+
+    return StudyProfile(modality="MR", is_supported=True)
+
+
+def select_segmentation_backend(profile: StudyProfile) -> str:
+    if not profile.is_supported:
+        raise ValueError(profile.reason or "Unsupported study for segmentation.")
+
+    if profile.modality == "CT":
+        return "totalsegmentator"
+
+    if profile.modality == "MR":
+        return "mrsegmentator"
+
+    raise ValueError(f"Unsupported study modality: {profile.modality}")
+
+
+def run_segmentation_for_study(
+    dicom_dir: str,
+    output_path: str,
+    fast: bool,
+    metadata: dict | None,
+) -> str:
+    profile = profile_study(metadata)
+    backend = select_segmentation_backend(profile)
+
+    if backend == "totalsegmentator":
+        _run_totalsegmentator(dicom_dir, output_path, fast)
+        return backend
+
+    _run_mrsegmentator(dicom_dir, output_path, fast)
+    return backend
+
+
+def _resolve_segmentation_executable(
+    env_var_name: str,
+    default_command: str,
+    tool_name: str,
+) -> str:
+    configured_command = os.environ.get(env_var_name)
+    if configured_command:
+        return configured_command
+
+    resolved_command = shutil.which(default_command)
+    if resolved_command:
+        return resolved_command
+
+    raise RuntimeError(
+        f"{tool_name} CLI was not found in PATH. Set {env_var_name} to the executable path."
+    )
+
+
+def _run_mrsegmentator(dicom_dir: str, output_path: str, fast: bool) -> None:
+    """Run MRSegmentator via CLI and normalize its output to a NIfTI file path."""
+    executable = _resolve_segmentation_executable(
+        MRSEGMENTATOR_COMMAND_ENV_VAR,
+        "mrsegmentator",
+        "MRSegmentator",
+    )
+
+    with tempfile.TemporaryDirectory() as temp_output_dir:
+        nifti_input_path = os.path.join(temp_output_dir, "study.nii.gz")
+        export_dicom_series_to_nifti(dicom_dir, nifti_input_path)
+
+        command = [
+            executable,
+            "--input",
+            nifti_input_path,
+            "--outdir",
+            temp_output_dir,
+        ]
+        if fast:
+            command.extend(["--fold", "0"])
+
+        subprocess.run(command, check=True)
+
+        output_candidates = sorted(Path(temp_output_dir).glob("*.nii.gz"))
+        if not output_candidates:
+            output_candidates = sorted(Path(temp_output_dir).glob("*.nii"))
+        if not output_candidates:
+            raise FileNotFoundError("MRSegmentator did not produce a NIfTI segmentation output.")
+
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        shutil.copyfile(output_candidates[0], output_path)
 
 
 def _utc_now_iso() -> str:
@@ -370,15 +611,21 @@ async def _run_pipeline_inner(job: "JobState", zip_path: str) -> None:
         await _update_progress(job, JobStatus.SEGMENTING, 10, "Running AI segmentation model...")
         seg_output = os.path.join(output_dir, "segmentation.nii.gz")
         is_fast = job.seg_quality == SegmentationQuality.FAST
-
-        # Run TotalSegmentator in a thread to avoid blocking the event loop
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
+
+        _, dicom_metadata = await loop.run_in_executor(
             None,
-            _run_totalsegmentator,
+            load_dicom_series,
+            dicom_dir,
+        )
+
+        segmentation_backend = await loop.run_in_executor(
+            None,
+            run_segmentation_for_study,
             dicom_dir,
             seg_output,
             is_fast,
+            dicom_metadata,
         )
 
         if not os.path.exists(seg_output):
@@ -391,15 +638,20 @@ async def _run_pipeline_inner(job: "JobState", zip_path: str) -> None:
 
         def mesh_progress(current, total, name):
             pct = 80 + int((current / max(total, 1)) * 15)
-            asyncio.ensure_future(
-                _update_progress(job, JobStatus.MESHING, pct, f"Meshing: {name}")
+            asyncio.run_coroutine_threadsafe(
+                _update_progress(job, JobStatus.MESHING, pct, f"Meshing: {name}"),
+                loop,
             )
 
         organs = await loop.run_in_executor(
             None,
-            generate_all_meshes,
-            seg_output,
-            mesh_dir,
+            partial(
+                generate_all_meshes,
+                seg_output,
+                mesh_dir,
+                progress_callback=mesh_progress,
+                label_schema=get_label_schema_for_backend(segmentation_backend),
+            ),
         )
 
         # Stage 4: Volume preparation
@@ -435,14 +687,29 @@ def _prepare_volume(
 
 
 def _run_totalsegmentator(dicom_dir: str, output_path: str, fast: bool) -> None:
-    """Run TotalSegmentator (blocking call, intended for use in executor)."""
-    from totalsegmentator.python_api import totalsegmentator
-
-    totalsegmentator(
-        input=dicom_dir,
-        output=output_path,
-        ml=True,
-        fast=fast,
-        device="cpu",
-        task="total",
+    """Run TotalSegmentator via CLI so it can live in an isolated environment."""
+    executable = _resolve_segmentation_executable(
+        TOTALSEGMENTATOR_COMMAND_ENV_VAR,
+        "TotalSegmentator",
+        "TotalSegmentator",
     )
+
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    command = [
+        executable,
+        "-i",
+        dicom_dir,
+        "-o",
+        output_path,
+        "--ml",
+        "--task",
+        "total",
+        "--device",
+        "cpu",
+    ]
+    if fast:
+        command.append("--fast")
+
+    subprocess.run(command, check=True)

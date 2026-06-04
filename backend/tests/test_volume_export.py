@@ -5,17 +5,46 @@ import tempfile
 import pytest
 import numpy as np
 import nibabel as nib
+from unittest.mock import patch
 
 from app.volume_export import (
     align_segmentation_to_volume_grid,
     build_volume_affine,
     downsample_volume,
+    export_dicom_series_to_nifti,
     export_segmentation_volume,
     export_volume_bundle,
     export_volume,
+    load_dicom_series,
     DEFAULT_MAX_DIM,
     HIGH_QUALITY_MAX_DIM,
 )
+
+
+class _FakeDicomSlice:
+    def __init__(
+        self,
+        position,
+        pixel_array,
+        *,
+        modality,
+        body_part_examined,
+        study_description,
+        series_description,
+        slope=1.0,
+        intercept=0.0,
+    ):
+        self.ImagePositionPatient = position
+        self.pixel_array = pixel_array
+        self.PixelSpacing = [1.0, 1.0]
+        self.ImageOrientationPatient = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+        self.SliceThickness = 1.0
+        self.RescaleSlope = slope
+        self.RescaleIntercept = intercept
+        self.Modality = modality
+        self.BodyPartExamined = body_part_examined
+        self.StudyDescription = study_description
+        self.SeriesDescription = series_description
 
 
 class TestDownsampleVolume:
@@ -41,6 +70,113 @@ class TestDownsampleVolume:
         result, scales = downsample_volume(vol, max_dim=256)
         expected_scale = 256 / 512
         assert abs(scales[0] - expected_scale) < 0.01
+
+
+class TestLoadDicomSeries:
+    def test_mri_series_uses_generic_intensity_metadata(self, tmp_path):
+        for index in range(2):
+            (tmp_path / f"slice_{index}.dcm").write_bytes(b"dcm")
+
+        fake_slices = [
+            _FakeDicomSlice(
+                [0.0, 0.0, 0.0],
+                np.full((2, 2), 120, dtype=np.uint16),
+                modality="MR",
+                body_part_examined="ABDOMEN",
+                study_description="MRI Abdomen",
+                series_description="T2",
+            ),
+            _FakeDicomSlice(
+                [1.0, 0.0, 0.0],
+                np.full((2, 2), 180, dtype=np.uint16),
+                modality="MR",
+                body_part_examined="ABDOMEN",
+                study_description="MRI Abdomen",
+                series_description="T2",
+            ),
+        ]
+
+        with patch("app.volume_export.pydicom.dcmread", side_effect=fake_slices):
+            volume, metadata = load_dicom_series(str(tmp_path))
+
+        assert metadata["min_value"] == int(volume.min())
+        assert metadata["max_value"] == int(volume.max())
+        assert metadata["intensity_unit"] == "signal"
+        assert metadata["study"]["body_part_examined"] == "ABDOMEN"
+        assert "min_hu" not in metadata
+        assert "max_hu" not in metadata
+
+    def test_ct_series_keeps_hu_metadata(self, tmp_path):
+        for index in range(2):
+            (tmp_path / f"slice_{index}.dcm").write_bytes(b"dcm")
+
+        fake_slices = [
+            _FakeDicomSlice(
+                [0.0, 0.0, 0.0],
+                np.full((2, 2), 10, dtype=np.uint16),
+                modality="CT",
+                body_part_examined="ABDOMEN",
+                study_description="CT Abdomen",
+                series_description="Portal venous",
+                intercept=-1024.0,
+            ),
+            _FakeDicomSlice(
+                [1.0, 0.0, 0.0],
+                np.full((2, 2), 20, dtype=np.uint16),
+                modality="CT",
+                body_part_examined="ABDOMEN",
+                study_description="CT Abdomen",
+                series_description="Portal venous",
+                intercept=-1024.0,
+            ),
+        ]
+
+        with patch("app.volume_export.pydicom.dcmread", side_effect=fake_slices):
+            volume, metadata = load_dicom_series(str(tmp_path))
+
+        assert metadata["min_value"] == int(volume.min())
+        assert metadata["max_value"] == int(volume.max())
+        assert metadata["intensity_unit"] == "HU"
+        assert metadata["min_hu"] == int(volume.min())
+        assert metadata["max_hu"] == int(volume.max())
+
+
+class TestExportDicomSeriesToNifti:
+    def test_exports_a_nifti_volume_from_a_dicom_series(self, tmp_path):
+        for index in range(2):
+            (tmp_path / f"slice_{index}.dcm").write_bytes(b"dcm")
+
+        fake_slices = [
+            _FakeDicomSlice(
+                [0.0, 0.0, 0.0],
+                np.full((2, 2), 120, dtype=np.uint16),
+                modality="MR",
+                body_part_examined="ABDOMEN",
+                study_description="MRI Abdomen",
+                series_description="T2",
+            ),
+            _FakeDicomSlice(
+                [1.0, 0.0, 0.0],
+                np.full((2, 2), 180, dtype=np.uint16),
+                modality="MR",
+                body_part_examined="ABDOMEN",
+                study_description="MRI Abdomen",
+                series_description="T2",
+            ),
+        ]
+        output_path = tmp_path / "study.nii.gz"
+
+        with patch("app.volume_export.pydicom.dcmread", side_effect=fake_slices):
+            metadata = export_dicom_series_to_nifti(str(tmp_path), str(output_path))
+
+        assert output_path.exists()
+        nii = nib.load(str(output_path))
+        assert nii.shape == (2, 2, 2)
+        np.testing.assert_array_equal(np.asarray(nii.dataobj), np.array([
+            [[120, 120], [120, 120]],
+            [[180, 180], [180, 180]],
+        ], dtype=np.int16))
+        assert metadata["study"]["modality"] == "MR"
 
 
 class TestExportVolume:

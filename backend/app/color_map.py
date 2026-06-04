@@ -15,6 +15,10 @@ ORGAN_CATEGORIES = {
     "other": "Other",
 }
 
+TOTALSEGMENTATOR_SCHEMA = "totalsegmentator"
+MRSEGMENTATOR_SCHEMA = "mrsegmentator"
+DEFAULT_LABEL_SCHEMA = TOTALSEGMENTATOR_SCHEMA
+
 # Label ID -> { name, color [R,G,B], category }
 # Colors sourced from 3D Slicer GenericAnatomyColors and TotalSegmentator defaults
 ORGAN_COLOR_MAP: dict[int, dict] = {
@@ -145,6 +149,49 @@ ORGAN_COLOR_MAP: dict[int, dict] = {
     117: {"name": "costal_cartilages",              "color": [241, 214, 145], "category": "bones"},
 }
 
+MRSEGMENTATOR_COLOR_MAP: dict[int, dict] = {
+    1:  {"name": "spleen",                        "color": [157, 108, 162], "category": "organs"},
+    2:  {"name": "kidney_right",                  "color": [185, 102, 83],  "category": "organs"},
+    3:  {"name": "kidney_left",                   "color": [185, 102, 83],  "category": "organs"},
+    4:  {"name": "gallbladder",                   "color": [0, 151, 83],    "category": "organs"},
+    5:  {"name": "liver",                         "color": [221, 130, 101], "category": "organs"},
+    6:  {"name": "stomach",                       "color": [205, 179, 139], "category": "organs"},
+    7:  {"name": "pancreas",                      "color": [249, 180, 111], "category": "organs"},
+    8:  {"name": "adrenal_gland_right",           "color": [249, 205, 20],  "category": "organs"},
+    9:  {"name": "adrenal_gland_left",            "color": [249, 205, 20],  "category": "organs"},
+    10: {"name": "lung_left",                     "color": [197, 165, 145], "category": "organs"},
+    11: {"name": "lung_right",                    "color": [197, 165, 145], "category": "organs"},
+    12: {"name": "heart",                         "color": [206, 40, 57],   "category": "organs"},
+    13: {"name": "aorta",                         "color": [224, 97, 76],   "category": "vessels"},
+    14: {"name": "inferior_vena_cava",            "color": [0, 151, 206],   "category": "vessels"},
+    15: {"name": "portal_vein_and_splenic_vein",  "color": [0, 151, 206],   "category": "vessels"},
+    16: {"name": "iliac_artery_left",             "color": [224, 97, 76],   "category": "vessels"},
+    17: {"name": "iliac_artery_right",            "color": [224, 97, 76],   "category": "vessels"},
+    18: {"name": "iliac_vena_left",               "color": [0, 151, 206],   "category": "vessels"},
+    19: {"name": "iliac_vena_right",              "color": [0, 151, 206],   "category": "vessels"},
+    20: {"name": "esophagus",                     "color": [211, 171, 143], "category": "organs"},
+    21: {"name": "small_bowel",                   "color": [205, 167, 142], "category": "organs"},
+    22: {"name": "duodenum",                      "color": [205, 167, 142], "category": "organs"},
+    23: {"name": "colon",                         "color": [200, 159, 140], "category": "organs"},
+    24: {"name": "urinary_bladder",               "color": [251, 222, 0],   "category": "organs"},
+    25: {"name": "spine",                         "color": [241, 214, 145], "category": "bones"},
+    26: {"name": "sacrum",                        "color": [241, 214, 145], "category": "bones"},
+    27: {"name": "hip_left",                      "color": [241, 214, 145], "category": "bones"},
+    28: {"name": "hip_right",                     "color": [241, 214, 145], "category": "bones"},
+    29: {"name": "femur_left",                    "color": [241, 214, 145], "category": "bones"},
+    30: {"name": "femur_right",                   "color": [241, 214, 145], "category": "bones"},
+    31: {"name": "autochthon_left",               "color": [192, 104, 88],  "category": "muscles"},
+    32: {"name": "autochthon_right",              "color": [192, 104, 88],  "category": "muscles"},
+    33: {"name": "iliopsoas_left",                "color": [192, 104, 88],  "category": "muscles"},
+    34: {"name": "iliopsoas_right",               "color": [192, 104, 88],  "category": "muscles"},
+    35: {"name": "gluteus_maximus_left",          "color": [192, 104, 88],  "category": "muscles"},
+    36: {"name": "gluteus_maximus_right",         "color": [192, 104, 88],  "category": "muscles"},
+    37: {"name": "gluteus_medius_left",           "color": [192, 104, 88],  "category": "muscles"},
+    38: {"name": "gluteus_medius_right",          "color": [192, 104, 88],  "category": "muscles"},
+    39: {"name": "gluteus_minimus_left",          "color": [192, 104, 88],  "category": "muscles"},
+    40: {"name": "gluteus_minimus_right",         "color": [192, 104, 88],  "category": "muscles"},
+}
+
 # Priority organs to pre-load in the viewer (lazy-load the rest)
 PRELOAD_ORGANS = {
     "liver", "spleen", "kidney_left", "kidney_right",
@@ -159,33 +206,67 @@ PRELOAD_ORGANS = {
     "sternum", "costal_cartilages",
 }
 
+MRSEGMENTATOR_PRELOAD_ORGANS = {
+    "liver", "spleen", "kidney_left", "kidney_right",
+    "heart", "aorta", "stomach", "pancreas",
+    "lung_left", "lung_right",
+    "sacrum", "spine", "hip_left", "hip_right",
+    "femur_left", "femur_right",
+}
 
-def get_organ_info(label_id: int) -> dict | None:
+LABEL_SCHEMA_COLOR_MAPS: dict[str, dict[int, dict]] = {
+    TOTALSEGMENTATOR_SCHEMA: ORGAN_COLOR_MAP,
+    MRSEGMENTATOR_SCHEMA: MRSEGMENTATOR_COLOR_MAP,
+}
+
+PRELOAD_ORGANS_BY_SCHEMA: dict[str, set[str]] = {
+    TOTALSEGMENTATOR_SCHEMA: PRELOAD_ORGANS,
+    MRSEGMENTATOR_SCHEMA: MRSEGMENTATOR_PRELOAD_ORGANS,
+}
+
+
+def get_label_schema_for_backend(segmentation_backend: str | None) -> str:
+    backend = str(segmentation_backend or "").strip().lower()
+    if backend == MRSEGMENTATOR_SCHEMA:
+        return MRSEGMENTATOR_SCHEMA
+    return TOTALSEGMENTATOR_SCHEMA
+
+
+def get_label_color_map(label_schema: str = DEFAULT_LABEL_SCHEMA) -> dict[int, dict]:
+    return LABEL_SCHEMA_COLOR_MAPS.get(label_schema, ORGAN_COLOR_MAP)
+
+
+def get_preload_organs(label_schema: str = DEFAULT_LABEL_SCHEMA) -> set[str]:
+    return PRELOAD_ORGANS_BY_SCHEMA.get(label_schema, PRELOAD_ORGANS)
+
+
+def get_organ_info(label_id: int, label_schema: str = DEFAULT_LABEL_SCHEMA) -> dict | None:
     """Get organ info (name, color, category) for a given label ID."""
-    return ORGAN_COLOR_MAP.get(label_id)
+    return get_label_color_map(label_schema).get(label_id)
 
 
-def get_organ_color_normalized(label_id: int) -> list[float] | None:
+def get_organ_color_normalized(label_id: int, label_schema: str = DEFAULT_LABEL_SCHEMA) -> list[float] | None:
     """Get organ color as normalized [0-1] floats for rendering."""
-    info = ORGAN_COLOR_MAP.get(label_id)
+    info = get_organ_info(label_id, label_schema=label_schema)
     if info is None:
         return None
     return [c / 255.0 for c in info["color"]]
 
 
-def get_all_organ_names() -> list[str]:
+def get_all_organ_names(label_schema: str = DEFAULT_LABEL_SCHEMA) -> list[str]:
     """Get list of all organ names."""
-    return [info["name"] for info in ORGAN_COLOR_MAP.values()]
+    return [info["name"] for info in get_label_color_map(label_schema).values()]
 
 
-def get_organs_by_category(category: str) -> dict[int, dict]:
+def get_organs_by_category(category: str, label_schema: str = DEFAULT_LABEL_SCHEMA) -> dict[int, dict]:
     """Get all organs in a specific category."""
+    label_map = get_label_color_map(label_schema)
     return {
-        lid: info for lid, info in ORGAN_COLOR_MAP.items()
+        lid: info for lid, info in label_map.items()
         if info["category"] == category
     }
 
 
-def is_preload_organ(name: str) -> bool:
+def is_preload_organ(name: str, label_schema: str = DEFAULT_LABEL_SCHEMA) -> bool:
     """Check if an organ should be pre-loaded in the viewer."""
-    return name in PRELOAD_ORGANS
+    return name in get_preload_organs(label_schema)

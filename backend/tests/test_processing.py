@@ -18,7 +18,13 @@ from app.processing import (
     get_job_output_dir,
     run_pipeline,
     _pipeline_lock,
+    _run_pipeline_inner,
     JobState,
+    profile_study,
+    _resolve_segmentation_executable,
+    _run_totalsegmentator,
+    run_segmentation_for_study,
+    select_segmentation_backend,
 )
 from app.models import JobStatus, SegmentationQuality, VolumeQuality
 
@@ -49,6 +55,11 @@ def _make_non_dicom_zip(tmp_path):
         zf.writestr("data.csv", b"col1,col2\n1,2\n")
         zf.writestr("notes.txt", b"nothing here")
     return zip_path
+
+
+class _ImmediateExecutorLoop:
+    async def run_in_executor(self, _executor, func, *args):
+        return func(*args)
 
 
 class TestValidateZipContainsDicom:
@@ -177,3 +188,325 @@ class TestPipelineConcurrency:
         """run_pipeline should return immediately if job_id doesn't exist."""
         await run_pipeline("nonexistent-id", "/fake/path.zip")
         # Should not raise
+
+
+class TestStudyProfiling:
+    def test_selects_totalsegmentator_for_ct_studies(self):
+        profile = profile_study(
+            {
+                "study": {
+                    "modality": "CT",
+                    "body_part_examined": "ABDOMEN",
+                    "study_description": "CT Abdomen Pelvis",
+                    "series_description": "Portal venous",
+                }
+            }
+        )
+
+        assert profile.modality == "CT"
+        assert profile.is_supported is True
+        assert select_segmentation_backend(profile) == "totalsegmentator"
+
+    def test_selects_mrsegmentator_for_supported_mri_studies(self):
+        profile = profile_study(
+            {
+                "study": {
+                    "modality": "MR",
+                    "body_part_examined": "ABDOMEN",
+                    "study_description": "MRI Abdomen",
+                    "series_description": "T2 Dixon",
+                }
+            }
+        )
+
+        assert profile.modality == "MR"
+        assert profile.is_supported is True
+        assert select_segmentation_backend(profile) == "mrsegmentator"
+
+    def test_rejects_explicitly_unsupported_mri_studies(self):
+        profile = profile_study(
+            {
+                "study": {
+                    "modality": "MR",
+                    "body_part_examined": "BRAIN",
+                    "study_description": "MRI Brain",
+                    "series_description": "T1",
+                }
+            }
+        )
+
+        assert profile.modality == "MR"
+        assert profile.is_supported is False
+        assert "torso" in profile.reason.lower()
+
+    def test_rejects_dynamic_low_coverage_prostate_mri(self):
+        profile = profile_study(
+            {
+                "study": {
+                    "modality": "MR",
+                    "body_part_examined": "PROSTATE",
+                    "study_description": "MR prostaat kanker detectie WDS_mc MCAPRODETW",
+                    "series_description": "tfl_dyn_fast_tra_1.5x1.5_t3.5sec",
+                    "slice_count": 16,
+                },
+                "spacing": [3.0, 1.5, 1.5],
+                "dimensions": [16, 128, 128],
+            }
+        )
+
+        assert profile.modality == "MR"
+        assert profile.is_supported is False
+        assert "coverage" in profile.reason.lower() or "anatomical" in profile.reason.lower()
+
+
+class TestSegmentationRouting:
+    @patch("app.processing._run_mrsegmentator")
+    @patch("app.processing._run_totalsegmentator")
+    def test_routes_ct_studies_to_totalsegmentator(self, mock_totalsegmentator, mock_mrsegmentator):
+        run_segmentation_for_study(
+            "dicom-dir",
+            "segmentation.nii.gz",
+            True,
+            {
+                "study": {
+                    "modality": "CT",
+                    "study_description": "CT Abdomen",
+                }
+            },
+        )
+
+        mock_totalsegmentator.assert_called_once_with("dicom-dir", "segmentation.nii.gz", True)
+        mock_mrsegmentator.assert_not_called()
+
+    @patch("app.processing._run_mrsegmentator")
+    @patch("app.processing._run_totalsegmentator")
+    def test_routes_supported_mri_studies_to_mrsegmentator(self, mock_totalsegmentator, mock_mrsegmentator):
+        run_segmentation_for_study(
+            "dicom-dir",
+            "segmentation.nii.gz",
+            False,
+            {
+                "study": {
+                    "modality": "MR",
+                    "study_description": "MRI Abdomen",
+                }
+            },
+        )
+
+        mock_mrsegmentator.assert_called_once_with("dicom-dir", "segmentation.nii.gz", False)
+        mock_totalsegmentator.assert_not_called()
+
+    @patch("app.processing._run_mrsegmentator")
+    @patch("app.processing._run_totalsegmentator")
+    def test_rejects_unsupported_mri_studies_before_segmentation(self, mock_totalsegmentator, mock_mrsegmentator):
+        with pytest.raises(ValueError, match="torso"):
+            run_segmentation_for_study(
+                "dicom-dir",
+                "segmentation.nii.gz",
+                False,
+                {
+                    "study": {
+                        "modality": "MR",
+                        "study_description": "MRI Brain",
+                    }
+                },
+            )
+
+        mock_mrsegmentator.assert_not_called()
+        mock_totalsegmentator.assert_not_called()
+
+
+class TestSegmentationExecutables:
+    def test_resolve_segmentation_executable_prefers_env_override(self, monkeypatch):
+        monkeypatch.setenv("SUPERNOVA_TOTALSEGMENTATOR_COMMAND", "/opt/totalsegmentator/bin/TotalSegmentator")
+
+        resolved = _resolve_segmentation_executable(
+            "SUPERNOVA_TOTALSEGMENTATOR_COMMAND",
+            "TotalSegmentator",
+            "TotalSegmentator",
+        )
+
+        assert resolved == "/opt/totalsegmentator/bin/TotalSegmentator"
+
+    def test_resolve_segmentation_executable_raises_when_missing(self, monkeypatch):
+        monkeypatch.delenv("SUPERNOVA_MRSEGMENTATOR_COMMAND", raising=False)
+
+        with patch("app.processing.shutil.which", return_value=None):
+            with pytest.raises(RuntimeError, match="SUPERNOVA_MRSEGMENTATOR_COMMAND"):
+                _resolve_segmentation_executable(
+                    "SUPERNOVA_MRSEGMENTATOR_COMMAND",
+                    "mrsegmentator",
+                    "MRSegmentator",
+                )
+
+    def test_run_totalsegmentator_invokes_cli_command(self, monkeypatch):
+        monkeypatch.setenv("SUPERNOVA_TOTALSEGMENTATOR_COMMAND", "/opt/totalsegmentator/bin/TotalSegmentator")
+
+        with patch("app.processing.subprocess.run") as mock_run:
+            _run_totalsegmentator("dicom-dir", "segmentation.nii.gz", True)
+
+        mock_run.assert_called_once_with(
+            [
+                "/opt/totalsegmentator/bin/TotalSegmentator",
+                "-i",
+                "dicom-dir",
+                "-o",
+                "segmentation.nii.gz",
+                "--ml",
+                "--task",
+                "total",
+                "--device",
+                "cpu",
+                "--fast",
+            ],
+            check=True,
+        )
+
+
+class TestPipelineSegmentationRouting:
+    @pytest.mark.asyncio
+    async def test_pipeline_routes_supported_mri_through_study_aware_dispatch(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SUPERNOVA_OUTPUT_DIR", str(tmp_path))
+        job_id = create_job(SegmentationQuality.FAST, VolumeQuality.STANDARD)
+        job = get_job(job_id)
+        assert job is not None
+
+        dicom_dir = tmp_path / "dicom"
+        dicom_dir.mkdir()
+
+        def fake_segmentation(dicom_arg, output_arg, fast_arg, metadata_arg):
+            Path(output_arg).write_bytes(b"seg")
+            assert dicom_arg == str(dicom_dir)
+            assert fast_arg is True
+            assert metadata_arg["study"]["modality"] == "MR"
+
+        with (
+            patch("app.processing.validate_zip_contains_dicom", return_value=(True, "ok")),
+            patch("app.processing.extract_zip"),
+            patch("app.processing._find_dicom_dir", return_value=str(dicom_dir)),
+            patch("app.processing.load_dicom_series", return_value=(
+                np.zeros((2, 2, 2), dtype=np.int16),
+                {"study": {"modality": "MR", "study_description": "MRI Abdomen"}},
+            )),
+            patch("app.processing.run_segmentation_for_study", side_effect=fake_segmentation) as mock_run_segmentation,
+            patch("app.processing.generate_all_meshes", return_value=[]),
+            patch("app.processing._prepare_volume", return_value={}),
+            patch("app.processing.asyncio.get_event_loop", return_value=_ImmediateExecutorLoop()),
+            patch("app.processing.update_recent_upload"),
+            patch("app.processing.manager.send_progress", new_callable=AsyncMock),
+        ):
+            await _run_pipeline_inner(job, str(tmp_path / "upload.zip"))
+
+        mock_run_segmentation.assert_called_once()
+        assert job.status == JobStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_pipeline_fails_before_meshing_for_unsupported_mri(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SUPERNOVA_OUTPUT_DIR", str(tmp_path))
+        job_id = create_job(SegmentationQuality.FAST, VolumeQuality.STANDARD)
+        job = get_job(job_id)
+        assert job is not None
+
+        dicom_dir = tmp_path / "dicom"
+        dicom_dir.mkdir()
+
+        with (
+            patch("app.processing.validate_zip_contains_dicom", return_value=(True, "ok")),
+            patch("app.processing.extract_zip"),
+            patch("app.processing._find_dicom_dir", return_value=str(dicom_dir)),
+            patch("app.processing.load_dicom_series", return_value=(
+                np.zeros((2, 2, 2), dtype=np.int16),
+                {"study": {"modality": "MR", "study_description": "MRI Brain"}},
+            )),
+            patch(
+                "app.processing.run_segmentation_for_study",
+                side_effect=ValueError("MRI uploads are currently supported only for torso studies."),
+            ),
+            patch("app.processing.generate_all_meshes", return_value=[]) as mock_generate_meshes,
+            patch("app.processing._prepare_volume", return_value={}),
+            patch("app.processing.asyncio.get_event_loop", return_value=_ImmediateExecutorLoop()),
+            patch("app.processing.update_recent_upload"),
+            patch("app.processing.manager.send_progress", new_callable=AsyncMock),
+        ):
+            await _run_pipeline_inner(job, str(tmp_path / "upload.zip"))
+
+        mock_generate_meshes.assert_not_called()
+        assert job.status == JobStatus.FAILED
+        assert job.error is not None
+        assert "torso" in job.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_pipeline_passes_backend_label_schema_to_mesh_generation(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SUPERNOVA_OUTPUT_DIR", str(tmp_path))
+        job_id = create_job(SegmentationQuality.FAST, VolumeQuality.STANDARD)
+        job = get_job(job_id)
+        assert job is not None
+
+        dicom_dir = tmp_path / "dicom"
+        dicom_dir.mkdir()
+
+        def fake_segmentation(_dicom_arg, output_arg, _fast_arg, _metadata_arg):
+            Path(output_arg).write_bytes(b"seg")
+            return "mrsegmentator"
+
+        with (
+            patch("app.processing.validate_zip_contains_dicom", return_value=(True, "ok")),
+            patch("app.processing.extract_zip"),
+            patch("app.processing._find_dicom_dir", return_value=str(dicom_dir)),
+            patch("app.processing.load_dicom_series", return_value=(
+                np.zeros((2, 2, 2), dtype=np.int16),
+                {"study": {"modality": "MR", "study_description": "MRI Abdomen"}},
+            )),
+            patch("app.processing.run_segmentation_for_study", side_effect=fake_segmentation),
+            patch("app.processing.generate_all_meshes", return_value=[]) as mock_generate_meshes,
+            patch("app.processing._prepare_volume", return_value={}),
+            patch("app.processing.asyncio.get_event_loop", return_value=_ImmediateExecutorLoop()),
+            patch("app.processing.update_recent_upload"),
+            patch("app.processing.manager.send_progress", new_callable=AsyncMock),
+        ):
+            await _run_pipeline_inner(job, str(tmp_path / "upload.zip"))
+
+        assert mock_generate_meshes.call_args is not None
+        assert mock_generate_meshes.call_args.kwargs["label_schema"] == "mrsegmentator"
+
+    @pytest.mark.asyncio
+    async def test_pipeline_schedules_mesh_progress_from_executor_thread(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SUPERNOVA_OUTPUT_DIR", str(tmp_path))
+        job_id = create_job(SegmentationQuality.FAST, VolumeQuality.STANDARD)
+        job = get_job(job_id)
+        assert job is not None
+
+        dicom_dir = tmp_path / "dicom"
+        dicom_dir.mkdir()
+
+        def fake_segmentation(_dicom_arg, output_arg, _fast_arg, _metadata_arg):
+            Path(output_arg).write_bytes(b"seg")
+            return "mrsegmentator"
+
+        def fake_generate_meshes(_seg_output, _mesh_dir, progress_callback=None, **_kwargs):
+            assert progress_callback is not None
+            progress_callback(1, 1, "spleen")
+            return []
+
+        with (
+            patch("app.processing.validate_zip_contains_dicom", return_value=(True, "ok")),
+            patch("app.processing.extract_zip"),
+            patch("app.processing._find_dicom_dir", return_value=str(dicom_dir)),
+            patch("app.processing.load_dicom_series", return_value=(
+                np.zeros((2, 2, 2), dtype=np.int16),
+                {"study": {"modality": "MR", "study_description": "MRI Abdomen"}},
+            )),
+            patch("app.processing.run_segmentation_for_study", side_effect=fake_segmentation),
+            patch("app.processing.generate_all_meshes", side_effect=fake_generate_meshes),
+            patch("app.processing._prepare_volume", return_value={}),
+            patch("app.processing.update_recent_upload"),
+            patch("app.processing.manager.send_progress", new_callable=AsyncMock) as mock_send_progress,
+        ):
+            await _run_pipeline_inner(job, str(tmp_path / "upload.zip"))
+            await asyncio.sleep(0)
+
+        assert job.status == JobStatus.COMPLETED
+        assert any(
+            call.args[1].message == "Meshing: spleen"
+            for call in mock_send_progress.await_args_list
+        )

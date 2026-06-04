@@ -612,4 +612,38 @@ describe('ViewerPage', () => {
     fireEvent.click(screen.getByTestId('viewer-tool-navigate'));
     expect(screen.getByTestId('slice-interaction-mode')).toHaveTextContent('navigate');
   });
+
+  it('uses MRI-specific window defaults and signal labels for MRI studies', async () => {
+    mockGetJobResults.mockResolvedValue({
+      ...MOCK_RESULT,
+      volume: {
+        ...MOCK_RESULT.volume,
+        intensity: {
+          ...MOCK_RESULT.volume.intensity,
+          min_hu: undefined,
+          max_hu: undefined,
+          min_value: 100,
+          max_value: 300,
+          intensity_unit: 'signal',
+          study: {
+            ...MOCK_RESULT.volume.intensity.study,
+            modality: 'MR',
+            study_description: 'Abdominal MRI',
+          },
+        },
+      },
+    });
+
+    await renderViewerPage();
+
+    expect(screen.getByTestId('study-metadata-panel')).toHaveTextContent('Abdominal MRI');
+    expect(screen.getAllByText('Signal Probe')).toHaveLength(2);
+
+    fireEvent.click(screen.getByTestId('switch-to-slice'));
+    expect(screen.getByTestId('slice-window-values')).toHaveTextContent('200/200');
+
+    fireEvent.click(screen.getByTestId('viewer-tool-probe'));
+    fireEvent.click(screen.getByTestId('slice-report-probe'));
+    expect(screen.getByText('72 signal')).toBeInTheDocument();
+  });
 });

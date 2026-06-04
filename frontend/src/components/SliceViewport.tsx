@@ -15,6 +15,7 @@ import {
   type SliceDistanceMeasurementSummary,
   type SliceInteractionMode,
   type SliceProbeSummary,
+  getIntensityUnit,
 } from '../utils/viewerTools';
 import type { HoverTarget } from '../utils/hoverDetails';
 import { formatOrganName } from '../utils/hoverDetails';
@@ -72,6 +73,7 @@ interface SlicePaneProps {
   focusedLabel: number | null;
   cursor: SliceCursor;
   hoverDetailsEnabled: boolean;
+  intensityUnit: string;
   windowCenter: number;
   windowWidth: number;
   anatomyLabelsEnabled: boolean;
@@ -184,6 +186,7 @@ function SlicePane({
   focusedLabel,
   cursor,
   hoverDetailsEnabled,
+  intensityUnit,
   windowCenter,
   windowWidth,
   anatomyLabelsEnabled,
@@ -675,7 +678,7 @@ function SlicePane({
             data-testid={`slice-probe-readout-${plane}`}
           >
             <p className="font-semibold uppercase tracking-[0.18em] text-sky-200/85">Probe</p>
-            <p className="mt-1 font-medium text-white">{probeSample.intensity} HU</p>
+            <p className="mt-1 font-medium text-white">{probeSample.intensity} {intensityUnit}</p>
             <p className="mt-1 text-slate-400">
               {probeSample.organName ? formatOrganName(probeSample.organName) : 'Unlabeled tissue'}
             </p>
@@ -786,6 +789,7 @@ export default function SliceViewport({
     () => new Set(organs.filter((organ) => displayedOrgans.has(organ.name)).map((organ) => organ.id)),
     [displayedOrgans, organs],
   );
+  const intensityUnit = useMemo(() => getIntensityUnit(volume?.intensity), [volume]);
   const focusedLabel = activeHoverName ? organByName.get(activeHoverName)?.id ?? null : null;
   const resolvedVolume = loadedVolume?.key === cacheKey ? loadedVolume.data : null;
   const resolvedError = loadingError?.key === cacheKey ? loadingError.message : null;
@@ -910,6 +914,7 @@ export default function SliceViewport({
         focusedLabel={focusedLabel}
         cursor={cursor}
         hoverDetailsEnabled={hoverDetailsEnabled}
+        intensityUnit={intensityUnit}
         windowCenter={windowCenter}
         windowWidth={windowWidth}
         anatomyLabelsEnabled={anatomyLabelsEnabled}
@@ -963,6 +968,7 @@ export default function SliceViewport({
         focusedLabel={focusedLabel}
         cursor={cursor}
         hoverDetailsEnabled={hoverDetailsEnabled}
+        intensityUnit={intensityUnit}
         windowCenter={windowCenter}
         windowWidth={windowWidth}
         anatomyLabelsEnabled={anatomyLabelsEnabled}
@@ -989,6 +995,7 @@ export default function SliceViewport({
         focusedLabel={focusedLabel}
         cursor={cursor}
         hoverDetailsEnabled={hoverDetailsEnabled}
+        intensityUnit={intensityUnit}
         windowCenter={windowCenter}
         windowWidth={windowWidth}
         anatomyLabelsEnabled={anatomyLabelsEnabled}

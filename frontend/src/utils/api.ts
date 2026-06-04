@@ -34,6 +34,7 @@ export interface StudyMetadata {
   patient_id?: string | null;
   patient_sex?: string | null;
   patient_age?: string | null;
+  body_part_examined?: string | null;
   study_description?: string | null;
   series_description?: string | null;
   study_date?: string | null;
@@ -54,6 +55,9 @@ export interface VolumeAsset {
   high_quality: boolean;
   affine?: number[][];
   direction?: VolumeDirection;
+  min_value?: number;
+  max_value?: number;
+  intensity_unit?: string;
   min_hu?: number;
   max_hu?: number;
   min_label?: number;

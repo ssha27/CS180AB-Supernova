@@ -11,6 +11,8 @@ import type { ViewerMode } from './ViewerControls';
 interface ViewerToolPanelProps {
   viewMode: ViewerMode;
   sliceAvailable: boolean;
+  intensityUnit: string;
+  probeLabel: string;
   visibilityPresetId: VisibilityPresetId;
   anatomyLabelsEnabled: boolean;
   interactionMode: SliceInteractionMode;
@@ -22,15 +24,11 @@ interface ViewerToolPanelProps {
   onInteractionModeChange: (mode: SliceInteractionMode) => void;
 }
 
-const INTERACTION_MODES: Array<{ id: SliceInteractionMode; label: string }> = [
-  { id: 'navigate', label: 'Navigate' },
-  { id: 'distance', label: 'Distance' },
-  { id: 'probe', label: 'HU Probe' },
-];
-
 export default function ViewerToolPanel({
   viewMode,
   sliceAvailable,
+  intensityUnit,
+  probeLabel,
   visibilityPresetId,
   anatomyLabelsEnabled,
   interactionMode,
@@ -42,6 +40,11 @@ export default function ViewerToolPanel({
   onInteractionModeChange,
 }: ViewerToolPanelProps) {
   const sliceToolsEnabled = sliceAvailable;
+  const interactionModes: Array<{ id: SliceInteractionMode; label: string }> = [
+    { id: 'navigate', label: 'Navigate' },
+    { id: 'distance', label: 'Distance' },
+    { id: 'probe', label: probeLabel },
+  ];
 
   return (
     <div className="w-[min(22rem,calc(100vw-2rem))] rounded-[1.6rem] border border-white/10 bg-slate-950/88 p-4 text-slate-100 shadow-[0_20px_45px_rgba(2,6,23,0.42)] backdrop-blur-md">
@@ -99,7 +102,7 @@ export default function ViewerToolPanel({
               Slice Interaction
             </p>
             <p className="mt-1 text-xs text-slate-300">
-              Use slice panes for navigation, distance, and HU sampling.
+              Use slice panes for navigation, distance, and {intensityUnit} sampling.
             </p>
           </div>
           {!sliceToolsEnabled && (
@@ -116,7 +119,7 @@ export default function ViewerToolPanel({
         )}
 
         <div className="mt-3 grid grid-cols-3 gap-2">
-          {INTERACTION_MODES.map((mode) => (
+          {interactionModes.map((mode) => (
             <button
               key={mode.id}
               type="button"
@@ -175,12 +178,12 @@ export default function ViewerToolPanel({
 
         <div className="rounded-2xl border border-white/8 bg-slate-900/60 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-            HU Probe
+            {probeLabel}
           </p>
           {latestProbe ? (
             <>
               <p className="mt-2 text-lg font-semibold text-white">
-                {latestProbe.intensity} HU
+                {latestProbe.intensity} {intensityUnit}
               </p>
               <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
                 {latestProbe.organName ? formatOrganName(latestProbe.organName) : latestProbe.plane}
@@ -188,7 +191,7 @@ export default function ViewerToolPanel({
             </>
           ) : (
             <p className="mt-2 text-sm text-slate-400">
-              Select the HU probe tool and click a voxel in any slice pane.
+              Select the {probeLabel.toLowerCase()} tool and click a voxel in any slice pane.
             </p>
           )}
         </div>
